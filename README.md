@@ -7,7 +7,7 @@
 [![Codecov](https://img.shields.io/codecov/c/github/rowansci/openconf)](https://codecov.io/gh/rowansci/openconf)
 
 
-A conformer generator for drug-like molecules. Combines torsion library biasing with MCMM-style exploration, uses RDKit/MMFF94s throughout, and runs fast enough for large-scale workflows.
+*a conformer generator for drug-like molecules: uses torsional Monte Carlo moves to quickly generate diverse ensembles, uses RDKit/MMFF94s throughout, and runs fast enough for large-scale workflows.*
 
 ## Installation
 
@@ -414,7 +414,7 @@ If you use openconf in your research, please cite:
 ```bibtex
 @software{openconf,
   title = {openconf: Modular conformer generation for docking and ensemble workflows},
-  year = {2025},
+  year = {2026},
   url = {https://github.com/rowansci/openconf}
 }
 ```
