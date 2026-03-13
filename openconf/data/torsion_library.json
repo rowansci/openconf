@@ -1,0 +1,5044 @@
+{
+  "_comment": "Torsion angle preferences derived from RDKit CrystalFF torsionPreferences_v2.in, J. Chem. Inf. Model. 56, 1 (2016). Fourier series converted to preferred angles by numerical minimization.",
+  "rules": [
+    {
+      "smarts": "[O:1]=[C:2]!@;-[O:3]~[CH0:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_000",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([N])!@;-[O:3]~[C:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_001",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]!@;-[O:3]~[C:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_002",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]!@;-[O:3]~[!#1:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_003",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][O:2]!@;-[c:3]~[*:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_004",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][O:2]!@;-[CX3:3]~[*:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_005",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][O:2]!@;-[CH1:3][H:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_006",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][O:2]!@;-[CH2:3]~[C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_007",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[H:1][CX4H1:2]!@;-[O:3][CX4:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_008",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CH2:2]!@;-[O:3][CX4:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_009",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[*:1][CX4:2]!@;-[O:3][$([CX3](=[!O])):4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_010",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1][CX4:2]!@;-[O:3][CX4:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_011",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[*:1][CX4:2]!@;-[O:3][CX4:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_012",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[O:3][S:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_013",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH0])!@;-[O:3][S:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_014",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[O:3][S:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_015",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[O:3][c:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_016",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH0])!@;-[O:3][c:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_017",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[O:3][c:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_018",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[O:3][P:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_019",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[O:3][p:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_020",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH:1][c:2]([cH])!@;-[O:3][$(C([F])([F])[F]):4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_021",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[O:3][CX4H0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_022",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]([a])!@;-[O:3][CX4H0:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_023",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1,n:1][c:2]!@;-[O:3][CRH1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_024",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1,n:1][c:2]!@;-[O:3][CH1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_025",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][c:2]([cH0])!@;-[O:3][CX4H0:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_026",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([nX2])!@;-[O:3][C:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_027",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2:1][c:2]([nX2])!@;-[O:3][C:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_028",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2:1][c:2]([nX3])!@;-[O:3][C:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_029",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([nX3])!@;-[O:3][C:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_030",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([nX2])!@;-[O:3][C:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_031",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0]([CX3])):1][c:2]([cH1])!@;-[O:3][C:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_032",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2](cO)!@;-[O:3][C:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_033",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(cO):1][c:2](cO)!@;-[O:3][C:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_034",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[O:3][C:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_035",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH1])!@;-[O:3][C:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_036",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[O:3][C:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_037",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[O:3][CX3H0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_038",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[aH0:1][c:2]!@;-[OX2:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_039",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H0:2]!@;-[OX2:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_040",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[H:1][CX4H1:2]!@;-[OX2:3][!#1:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_041",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CX4H2:2]!@;-[OX2:3][c:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_042",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][CX4H2:2]!@;-[OX2:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_043",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CX4H2:2]!@;-[OX2:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_044",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][CX4H2:2]!@;-[OX2:3][c:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_045",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H2:2]!@;-[OX2:3][c:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_046",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H2:2]!@;-[OX2:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_047",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][CX4H2:2]!@;-[OX2:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_048",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CX4H2:2]!@;-[OX2:3][!#1:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_049",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H2:2]!@;-[OX2:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_050",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4:2]!@;-[OX2:3][!#1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_051",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([CX3]=O):1][NX3H0:2](C)!@;-[CX4H2:3][C:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_052",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([CX3]=O):1][NX3H1:2]!@;-[CX4H2:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_053",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NX3H0:2]!@;-[CX4H2:3][!#1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_054",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NX3H1:2]!@;-[CX4H2:3][!#1:4]",
+      "angles_deg": [
+        167.7,
+        192.3,
+        97.8,
+        262.2
+      ],
+      "weights": [
+        0.3053,
+        0.3053,
+        0.1947,
+        0.1947
+      ],
+      "name": "crystalff_055",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NX3H0:2]!@;-[CX4H1:3][H:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_056",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NX3H1:2]!@;-[CX4H1:3][H:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_057",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NH1:2]!@;-[c:3][nX2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_058",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NH0:2]!@;-[c:3]([cH1])[cH1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_059",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NH1:2]!@;-[c:3]([cH1])[cH1:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_060",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NH0:2]!@;-[c:3]([cH1])[cH0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_061",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NH1:2]!@;-[c:3]([cH1])[cH0:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_062",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NH0:2]!@;-[c:3]([cH0])[cH0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_063",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][NH1:2]!@;-[c:3]([cH0])[cH0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_064",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(S(=O)(=O)):1][N:2]!@;-[c:3][a:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_065",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O-:1][N+:2](=O)!@;-[c:3]([cH,nX2H0])[cH,nX2H0:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_066",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O-:1][N+:2](=O)!@;-[c:3]([cH0])[cH,nX2H0:4]",
+      "angles_deg": [
+        180.0,
+        0.0,
+        139.1,
+        220.9,
+        321.4,
+        38.6
+      ],
+      "weights": [
+        0.2018,
+        0.1826,
+        0.166,
+        0.166,
+        0.1418,
+        0.1418
+      ],
+      "name": "crystalff_067",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O-:1][N+:2](=O)!@;-[c:3]([cH0])[cH0:4]",
+      "angles_deg": [
+        93.4,
+        266.6,
+        180.0,
+        0.0
+      ],
+      "weights": [
+        0.2622,
+        0.2622,
+        0.2615,
+        0.2141
+      ],
+      "name": "crystalff_068",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O-:1][N+:2](=O)!@;-[c:3][a:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_069",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[NX3H1:3][C,c:4](~[N,n])(~[N,n])",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_070",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH1])!@;-[NX3H1:3][C,c:4](~[N,n])(~[N,n])",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_071",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([nX2H0])!@;-[NX3H1:3][C,c:4](~[N,n])(~[N,n])",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_072",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[NX3H1:3][C,c:4](~[N,n])(~[N,n])",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_073",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][c:2]([nX2H0])!@;-[NX3H1:3][C,c:4](~[N,n])(~[N,n])",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_074",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][c:2]([nX3H1])!@;-[NX3H1:3][C,c:4](~[N,n])(~[N,n])",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_075",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][a:2]!@;-[NH1:3][C,c:4](~[N,n])(~[N,n])",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_076",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][NH:2]!@;-[C:3](=[NH2:4])[NH2]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_077",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[NH2][C:1](=[NH2])[NH:2]!@;-[CH2:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_078",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[NX2:3]=[$(C([NX3])n):4]",
+      "angles_deg": [
+        53.6,
+        306.4,
+        129.1,
+        230.9
+      ],
+      "weights": [
+        0.2519,
+        0.2519,
+        0.2481,
+        0.2481
+      ],
+      "name": "crystalff_079",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2:1][c:2]!@;-[NX2:3]=[$(C([NX3])N):4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_080",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[NX2:3]=[$(C([NX3])N):4]",
+      "angles_deg": [
+        53.6,
+        306.4,
+        129.1,
+        230.9
+      ],
+      "weights": [
+        0.2519,
+        0.2519,
+        0.2481,
+        0.2481
+      ],
+      "name": "crystalff_081",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]!@;-[NX2:3]=[$(C([NX3])N):4]",
+      "angles_deg": [
+        128.1,
+        231.9,
+        53.2,
+        306.8
+      ],
+      "weights": [
+        0.269,
+        0.269,
+        0.231,
+        0.231
+      ],
+      "name": "crystalff_082",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([NH1])!@;-[NX3H1:3](C=O)[H:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_083",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]!@;-[NX3H1:3](C=O)[H:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_084",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]!@;-[NX3:3](C=O)[*:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_085",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[CX3:3]=[NX2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_086",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[CX3:3]=[*H0:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_087",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[CX3:3]=[*H1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_088",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[CX3:3]=[*H2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_089",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[CX3:3]=[*H1:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_090",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[CX3:3]=[*H0:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_091",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[CX3H1:3]=[*:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_092",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[CX3H1:3]=[*:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_093",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([C](=O)):1][NX3H0:2]!@;-[CX4H2:3][$([c]([cH,nX2H0])[cH,nX2H0]):4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_094",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[CX4H2:3][$([c]([cH,nX2H0])[cH,nX2H0]):4]",
+      "angles_deg": [
+        82.4,
+        277.6,
+        180.0,
+        0.0
+      ],
+      "weights": [
+        0.3633,
+        0.3633,
+        0.2347,
+        0.0388
+      ],
+      "name": "crystalff_095",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[CX4H2:3][!#1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_096",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[CX4H2:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_097",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[CX4H1:3][H:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_098",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[CX4H1:3][H:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_099",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[CX4H0:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_100",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[CX4H0:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_101",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3:2]!@;-[!#1:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_102",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([C](=O)([$([NX3H1]),$([NX3H2])])[NX3H1]):1][NX3H1:2]!@;-[c:3]([nH1])[nH0:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_103",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([C](=O)([$([NX3H1]),$([NX3H2])])[NX3H1]):1][NX3H1:2]!@;-[c:3]([nH0])[cH1:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_104",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([C](=O)):1][NX3H1:2]!@;-[$([a]([nH0,o])):3][cH1:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_105",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([C](=O)([$([NX3H1]),$([NX3H2])])[NX3H1]):1][NX3H1:2]!@;-[c&r6:3][nH0&r6:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_106",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([C](=O)):1][NX3H1:2]!@;-[c:3]([cH])[nX2H0:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_107",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[c:3]([s,o])[n:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_108",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[c:3]([s,o])[n:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_109",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([C](=O)):1][NX3:2]!@;-[a:3](s)[a:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_110",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3:2]!@;-[a:3][nH:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_111",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[c:3]([cH0]Cl)[cH:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_112",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[c:3]([cH0]F)[cH:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_113",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3:2]!@;-[$([a]([cH1])):3][$([aH0](!@O)):4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_114",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3:2]!@;-[a:3][aH0:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_115",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[c:3]([cH1])[cH1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_116",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[c:3]([cH1])[cH1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_117",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[c:3]([cH0])[cH:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_118",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[c:3]([cH0])[cH:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_119",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H0:2]!@;-[c:3]([cH0])[cH0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_120",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(C=O):1][NX3H1:2]!@;-[c:3]([cH0])[cH0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_121",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O,S:1]=[C:2]([$([NX3H1]),$([NX3H2])])!@;-[$([NX3]c[nH0]):3][H:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_122",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]!@;-[$([NX3](c([nH1])n)):3][H:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_123",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2](c)!@;-[$([NX3](c([nX2H0])([nX2H0]))):3][H:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_124",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]([$([NX3H1]C)])!@;-[NX3H1:3][!#1:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_125",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([!$([NH1])])!@;-[NX3H1:3]([H:4])[$(c([nX2H0])([nX2H0]))]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_126",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O,S:1]=[C:2]([$([NX3H1]),$([NX3H2])])!@;-[$([NX3](cn)):3][H:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_127",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]!@;-[NX3H0:3]([a:4])[A]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_128",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2](a)!@;-[NX3H0:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_129",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]!@;-[NX3H0:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_130",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]!@;-[NX3H1:3][!#1:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_131",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CH0:1][NX3:2]([CH0])!@;-[c:3][a:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_132",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CH0:1][NX3:2]([CH1])!@;-[c:3][a:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_133",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1,nX2H0:1][c:2]([cH1,nX2H0])!@;-[NX3&r:3][*:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_134",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[NX3H1:3][$([CX4&r]([C;r])([C;r])):4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_135",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[NX3:3][CX4:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_136",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH,nX2H0])!@;-[NX3H1:3][CX4:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_137",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH,nX2H0])!@;-[NX3H0:3][CX4:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_138",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[NX3:3][CX4:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_139",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c:2](c)!@;-[NX3:3][CX4:4]",
+      "angles_deg": [
+        0.0,
+        180.0,
+        247.3,
+        67.3,
+        292.7,
+        112.7
+      ],
+      "weights": [
+        0.2776,
+        0.2776,
+        0.1112,
+        0.1112,
+        0.1112,
+        0.1112
+      ],
+      "name": "crystalff_140",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[NX3:3][a:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_141",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH0])!@;-[NX3:3][a:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_142",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[NX3:3][a:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_143",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][a:2]!@;-[NX3H0:3][$([CX3]=O):4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_144",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][a:2]!@;-[NX3H1:3][$([CX3]=O):4]",
+      "angles_deg": [
+        180.0,
+        236.6,
+        123.4,
+        293.3,
+        66.7,
+        0.0
+      ],
+      "weights": [
+        0.292,
+        0.1747,
+        0.1747,
+        0.1614,
+        0.1614,
+        0.0358
+      ],
+      "name": "crystalff_145",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][a:2]([nX2H0])!@;-[NX3H0:3][$([CX3]=O):4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_146",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][$(a([!nX2H0])([nX2H0])!@;-[NX3H1]):2]!@[NX3H1:3][$([CX3](a)=O):4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_147",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][a:2]!@;-[NX3H1:3][$([CX3]=O):4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_148",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][a:2]!@;-[NX3H1:3][$([CX3]=O):4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_149",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][a:2]!@;-[NX3:3][CX4H0:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_150",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][a:2]!@;-[NX3:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0,
+        298.2,
+        61.8,
+        118.2,
+        241.8
+      ],
+      "weights": [
+        0.2753,
+        0.2753,
+        0.1124,
+        0.1124,
+        0.1124,
+        0.1124
+      ],
+      "name": "crystalff_151",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]!@;-[nX3:3]([aH0:4])([aH0])",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_152",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]!@;-[nX3:3][aH1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_153",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][CX3:2](=S)!@;-[NX3:3][a:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_154",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX3:2](=S)!@;-[NX3H0:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_155",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX3:2](=S)!@;-[NX3H1:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_156",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CH2:2]!@;-[n:3][cH0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_157",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CH2:2]!@;-[n:3][a:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_158",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][n:2]!@;-[CX3H0:3]~[$([n,N](-a)):4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_159",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX4:1][CX4H2:2]!@;-[NX3:3][CX4:4]",
+      "angles_deg": [
+        75.2,
+        284.8,
+        162.1,
+        197.9
+      ],
+      "weights": [
+        0.278,
+        0.278,
+        0.222,
+        0.222
+      ],
+      "name": "crystalff_160",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CX4H2:2]!@;-[NX3:3][C:4]",
+      "angles_deg": [
+        75.2,
+        284.8,
+        162.1,
+        197.9
+      ],
+      "weights": [
+        0.278,
+        0.278,
+        0.222,
+        0.222
+      ],
+      "name": "crystalff_161",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CX4:2]!@;-[NX3:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_162",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H2:2]!@;-[NX3H1:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_163",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H2:2]!@;-[NX3:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_164",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H1:2]!@;-[NX3:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_165",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4:2]!@;-[NX3:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_166",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][$(S(=O)=O):2]!@;-[nX3:3]([aH1])[aH1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_167",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][$(S(=O)=O):2]!@;-[nX3:3][aH0:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_168",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][S:2](=O)(=O)!@;-[NX2H0-:3]-[*:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_169",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[*:1][$(S(=O)=O):2]!@;-[NX3H0&r:3][*:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_170",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][$(S(=O)=O):2]!@;-[NX3H1:3][c:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_171",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][$(S(=O)=O):2]!@;-[NX3H0:3][c:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_172",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][$(S(=O)=O):2]!@;-[NX3H1:3][C:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_173",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][$(S(=O)=O):2]!@;-[NX3H0:3][C:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_174",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][$(S(=O)=O):2]!@;-[NX3H1:3][c:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_175",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][$(S(=O)=O):2]!@;-[NX3H0:3][c:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_176",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][$(S(=O)=O):2]!@;-[NX3H1:3][C:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_177",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][$(S(=O)=O):2]!@;-[NX3H0:3][C:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_178",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[*:1][$(S(=O)=O):2]!@;-[NX3H1:3][*:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_179",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[*:1][$(S(=O)=O):2]!@;-[NX3H0:3][*:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_180",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX3:2]!@;-[SX2:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_181",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4:2]!@;-[SX2:3][!#1:4]",
+      "angles_deg": [
+        180.0,
+        290.9,
+        69.1,
+        0.0
+      ],
+      "weights": [
+        0.3362,
+        0.3133,
+        0.3133,
+        0.0372
+      ],
+      "name": "crystalff_182",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX3:2]!@;-[SX3:3][!#1:4]",
+      "angles_deg": [
+        61.5,
+        298.5
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_183",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4:2]!@;-[SX3:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_184",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX3:2]!@;-[SX4:3][!#1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_185",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[H:1][CX4H1:2]!@;-[SX4:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_186",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4:2]!@;-[SX4:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_187",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[aH1:1][c:2]([aH1])!@;-[SX2:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_188",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[aH1:1][c:2]([aH0])!@;-[SX2:3][*R:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_189",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[aH1:1][c:2]([aH0])!@;-[SX2:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_190",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[aH0:1][c:2]([aH0])!@;-[SX2:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0,
+        284.3,
+        75.7,
+        102.6,
+        257.4
+      ],
+      "weights": [
+        0.2695,
+        0.2206,
+        0.1305,
+        0.1305,
+        0.1245,
+        0.1245
+      ],
+      "name": "crystalff_191",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][c:2]!@;-[SX2:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_192",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][c:2]!@;-[SX3:3][!#1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_193",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[aH1:1][c:2]([aH1])!@;-[SX4:3][!#1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_194",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[aH0:1][c:2]([aH1])!@;-[SX4:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_195",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[aH0:1][c:2]([aH0])!@;-[SX4:3][!#1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_196",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]([NH1])!@;-[CH2:3][CX3:4]=O",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_197",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]([NH1])!@;-[CH2:3][C:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_198",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([CX3]([C])([H])):1]=[CX3:2]([C])!@;-[CH2:3][C:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_199",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([CX3]([C])([H])):1]=[CX3:2]([H])!@;-[CH1:3](C)[C:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_200",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([CX3]([C])([H])):1]=[CX3:2]([H])!@;-[CH2:3][C:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_201",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[N:1][C:2](=O)!@;-[CX4H2:3][CX4H2:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_202",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "N[C:2](=[O:1])!@;-[CH2:3][N:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_203",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([O-])!@;-[CX4H1:3][H:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_204",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3H2:1]=[CX3:2]!@;-[CX3:3]=[C:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_205",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3:1]=[CX3:2]!@;-[CH2:3][OX2:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_206",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3:1]=[CX3:2]!@;-[CH1:3](C)[C:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_207",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3:1]=[CX3:2]!@;-[CH2:3][C:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_208",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3:1]=[CX3:2]!@;-[CH2:3][c:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_209",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3:1]=[CX3:2]!@;-[CH2:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_210",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2](O)!@;-[CX3:3]([$([NH1,NH2,CH2])])=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_211",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_212",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3R:1]=[CX3R:2]!@;-[CX3:3]=[CX3:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_213",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3H0:1]=[CX3H0:2]!@;-[CX3:3]=[CX3H0:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_214",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3H0:1]=[CX3H0:2]!@;-[CX3H0:3]=[CX3:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_215",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3H0:1]=[CX3:2]!@;-[CX3H0:3]=[CX3:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_216",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3H0:1]=[CX3H0:2]!@;-[CX3:3]=[CX3:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_217",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[CX3:1]=[CX3:2]!@;-[CX3:3]=[CX3:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_218",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[*^2:1]~[C^2:2]([!H])!@;-[C^2:3]~[*^2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_219",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[*^2:1]~[C^2:2]!@;-[C^2:3]~[*^2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_220",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]!@;-[CX4&r3:3]!@[!#1:4]",
+      "angles_deg": [
+        180.0,
+        242.5,
+        117.5,
+        0.0
+      ],
+      "weights": [
+        0.3653,
+        0.2171,
+        0.2171,
+        0.2005
+      ],
+      "name": "crystalff_221",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[CX3:2]!@;-[CX4H1&r3:3][H:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_222",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[OX2:1][CX4H2:2]!@;-[CX4H2:3][N&r:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_223",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[OX2:1][CX4H2:2]!@;-[CX4H2:3][N:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_224",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[OX2:1][CX4:2]!@;-[CX4:3][N:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_225",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[OX2:1][CX4H2:2]!@;-[CX4H2:3][OX2:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_226",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[OX2:1][CX4:2]!@;-[CX4:3][OX2:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_227",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4&r:2]!@;-[CX4&r:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_228",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H2:2]!@;-[CX4H2:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_229",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4:2]!@;-[CX4:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_230",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[OX2:1][CX4H2:2]!@;-[CX3:3]([$([NX3H1,NX3H2])])=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_231",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[OH1:1][CX4:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_232",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[NH1:1][CX4:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_233",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1][CX4:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_234",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[N:1][CX4:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_235",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CX4H2:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0,
+        113.1,
+        246.9
+      ],
+      "weights": [
+        0.5447,
+        0.1641,
+        0.1456,
+        0.1456
+      ],
+      "name": "crystalff_236",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][CX4H2:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        86.7,
+        273.3,
+        160.0,
+        200.0
+      ],
+      "weights": [
+        0.3796,
+        0.1907,
+        0.1907,
+        0.1195,
+        0.1195
+      ],
+      "name": "crystalff_237",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H2:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0,
+        298.2,
+        61.8,
+        118.2,
+        241.8
+      ],
+      "weights": [
+        0.2753,
+        0.2753,
+        0.1124,
+        0.1124,
+        0.1124,
+        0.1124
+      ],
+      "name": "crystalff_238",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][CX4:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_239",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CX4:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_240",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        120.0,
+        240.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_241",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][CX4:2]!@;-[CX3:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_242",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CX4:2]!@;-[CX3:3][c:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_243",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][CX4:2]!@;-[CX3:3][c:4]",
+      "angles_deg": [
+        286.2,
+        73.8,
+        180.0
+      ],
+      "weights": [
+        0.3602,
+        0.3602,
+        0.2796
+      ],
+      "name": "crystalff_244",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[C:1][CX4:2]!@;-[CX3:3][C:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_245",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4:2]!@;-[CX3H0:3][!#1:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_246",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[H:1][CX4H1:2]!@;-[CX3:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_247",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[!#1:1][CX4H2:2]!@;-[CX3:3][!#1:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_248",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0]([$([NX3H2]),$([NX3H1])])):1][a:2]!@;-[a:3][nX2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_249",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nH0:1][c&r6:2]([nH0])!@;-[c&r6:3]([nH0])[nH0:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_250",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nH0&r6:1][c&r6:2]([nH0&r6])!@;-[c&r6:3]([cH1&r6])[nH0&r6:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_251",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nH0&r6:1][c&r6:2]([nH0&r6])!@;-[c&r6:3]([cH1&r6])[cH1&r6:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_252",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c:2]!@;-[c:3][$(c!@c):4]",
+      "angles_deg": [
+        60.9,
+        299.1,
+        119.7,
+        240.3,
+        180.0
+      ],
+      "weights": [
+        0.2322,
+        0.2322,
+        0.2207,
+        0.2207,
+        0.0943
+      ],
+      "name": "crystalff_253",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[c:3]([cH0:4])[cH0]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_254",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[c:3]([cH0:4])[cH1]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_255",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH1])!@;-[c:3]([cH0:4])[cH1]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_256",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[c:3]([cH1:4])[cH1]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_257",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH1])!@;-[c:3]([cH1:4])[cH1]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_258",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[c:3]([cH1:4])[cH1]",
+      "angles_deg": [
+        180.0,
+        144.0,
+        216.0,
+        0.0,
+        322.3,
+        37.7
+      ],
+      "weights": [
+        0.2469,
+        0.2006,
+        0.2006,
+        0.1226,
+        0.1146,
+        0.1146
+      ],
+      "name": "crystalff_259",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][c:2]!@;-[c:3][nX3H1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_260",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][c:2]([!nX2H0])!@;-[c:3]([!nX2H0])[nX2H0:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_261",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][$(c([nX2H0])(a(a)(a))!@;-c[nX2H0]):2]!@[c:3][nX2H0:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_262",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][$([c&r6](c[OH])):2]!@;-[$([c&r6](c[OH])):3][nX2H0:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_263",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c:2]!@;-[c:3][s,o,nX3H1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_264",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[c:3][nX2H0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_265",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[c:3]([cH0])[nX2H0:4]",
+      "angles_deg": [
+        0.0,
+        256.3,
+        103.7
+      ],
+      "weights": [
+        0.378,
+        0.311,
+        0.311
+      ],
+      "name": "crystalff_266",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c:2]!@;-[c:3]([cH0])[nX2H0:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_267",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c:2]([cH0])!@;-[c:3][nX2H0:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_268",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]!@;-[c:3]([cH1])[nX2H0:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_269",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c&r5:2]!@;-[c&r5:3][c:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_270",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c&r6:2]!@;-[c&r5:3][c:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_271",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c&r6:2]!@;-[c&r6:3][cH0:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_272",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c&r6:2]!@;-[c&r6:3][c:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_273",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[c:1][c:2]!@;-[c:3][c:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_274",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2&r6:1][cH0&r6:2]([cH1&r6])!@;-[CX4H2:3][O!H:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_275",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H0:3][a:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_276",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H0:3][N,O,S:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_277",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H0:3][CX3:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_278",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H0:3][CX4:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_279",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H0:3][*:4]",
+      "angles_deg": [
+        60.0,
+        180.0,
+        300.0
+      ],
+      "weights": [
+        0.3333,
+        0.3333,
+        0.3333
+      ],
+      "name": "crystalff_280",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H2:3][a:4]",
+      "angles_deg": [
+        82.4,
+        277.6,
+        180.0,
+        0.0
+      ],
+      "weights": [
+        0.3633,
+        0.3633,
+        0.2347,
+        0.0388
+      ],
+      "name": "crystalff_281",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H2:3][CX3:4]",
+      "angles_deg": [
+        82.4,
+        277.6,
+        180.0,
+        0.0
+      ],
+      "weights": [
+        0.3633,
+        0.3633,
+        0.2347,
+        0.0388
+      ],
+      "name": "crystalff_282",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[CX4H2:3][$([CX4H1]C(=O)O):4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_283",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[CX4H2:3][CX4:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_284",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H2:3][CX4:4]",
+      "angles_deg": [
+        82.4,
+        277.6,
+        180.0,
+        0.0
+      ],
+      "weights": [
+        0.3633,
+        0.3633,
+        0.2347,
+        0.0388
+      ],
+      "name": "crystalff_285",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H2:3][N,O,S:4]",
+      "angles_deg": [
+        82.4,
+        277.6,
+        180.0,
+        0.0
+      ],
+      "weights": [
+        0.3633,
+        0.3633,
+        0.2347,
+        0.0388
+      ],
+      "name": "crystalff_286",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H2:3][!#1:4]",
+      "angles_deg": [
+        82.4,
+        277.6,
+        180.0,
+        0.0
+      ],
+      "weights": [
+        0.3633,
+        0.3633,
+        0.2347,
+        0.0388
+      ],
+      "name": "crystalff_287",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H1:3][a:4]",
+      "angles_deg": [
+        75.1,
+        284.9,
+        136.8,
+        223.2
+      ],
+      "weights": [
+        0.276,
+        0.276,
+        0.224,
+        0.224
+      ],
+      "name": "crystalff_288",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H1:3][CX4:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_289",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H1:3][CX3:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_290",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H1:3][N,O,S:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_291",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]!@;-[CX4H1:3][H:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_292",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H0:3][a:4]",
+      "angles_deg": [
+        61.7,
+        298.3,
+        117.5,
+        242.5,
+        180.0
+      ],
+      "weights": [
+        0.2198,
+        0.2198,
+        0.199,
+        0.199,
+        0.1626
+      ],
+      "name": "crystalff_293",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H0:3][CX3:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_294",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H0:3][CX4:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_295",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H0:3][N,O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_296",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H2:3][a:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_297",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H2:3][CX3:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_298",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[n,o,s:1][c:2]!@;-[CX4H2:3][CX4:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_299",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H2:3][!#1:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_300",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H1:3][N,O:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_301",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H1:3][a:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_302",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX4H1:3][H:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_303",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][c:2]!@;-[C:3](=[N:4])(-[NH1,NH2])",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_304",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[C:3](=[$([N][CX4]):4])([$(N[CX4])])",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_305",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[C:3](=[$([NH0][CX4]):4])(-N)",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_306",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[C:3](=[$([N][!#1]):4])([$(N(C)[!#1])])",
+      "angles_deg": [
+        150.0,
+        30.0,
+        210.0,
+        330.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_307",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[C:3](=[$([N][!#1]):4])([$(N(C)~[!#1])])",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_308",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[C:3](=[N:4])(-N)",
+      "angles_deg": [
+        150.0,
+        30.0,
+        210.0,
+        330.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_309",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([O-])!@;-[c:3][$(aC(=O)(O)):4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_310",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([O-])!@;-[c:3][nX3H1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_311",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([O-])!@;-[c:3][nX2H0:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_312",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([O-])!@;-[c:3]([cH0])[cH0:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_313",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([O-])!@;-[c:3]([cH1])[$([cH0][NH1,NH2]):4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_314",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([O-])!@;-[c:3]([cH1])[cH0:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_315",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([O-])!@;-[c:3]([cH1])[cH1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_316",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[O:1]=[C:2]([O-])!@;-[c:3][a:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_317",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([c]([NH1,NH2])):1][c:2]!@;-[CX3:3]([!O])=[O:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_318",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(a[OH1]):1][a:2]!@;-[CX3:3]([NX3H0,CX4H0,c])=[O:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_319",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$(a[NH1,NH2]):1][a:2]!@;-[CX3:3]([NX3H0,CX4H0,c])=[O:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_320",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH1])!@;-[CX3:3](c)=[O:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_321",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[CX3:3](c)=[O:4]",
+      "angles_deg": [
+        27.1,
+        332.9,
+        210.4,
+        149.6
+      ],
+      "weights": [
+        0.2524,
+        0.2524,
+        0.2476,
+        0.2476
+      ],
+      "name": "crystalff_322",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][a:2]!@;-[CX3:3](a)=[O:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_323",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0](=O)):1][c:2]([cH1])!@;-[CX3:3]([NX3H1,NX3H2])=[O:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_324",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nH0&r6:1][c&r6:2]([cH1&r6])!@;-[C:3]([NH1,NH2])=[O:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_325",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[s:1][c:2]!@;-[C:3]([NH1])=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_326",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0]Cl):1][c:2]([cH1])!@;-[CX3:3]([NX3H1])=[O:4]",
+      "angles_deg": [
+        60.9,
+        299.1,
+        119.7,
+        240.3,
+        180.0
+      ],
+      "weights": [
+        0.2322,
+        0.2322,
+        0.2207,
+        0.2207,
+        0.0943
+      ],
+      "name": "crystalff_327",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0]F):1][c:2]([cH1])!@;-[CX3:3]([NX3H1])=[O:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_328",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0][OH0]):1][c:2]([cH1])!@;-[C:3](=O)[NH1:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_329",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0][OH1]):1][c:2]([cH1])!@;-[C:3](=O)[NH1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_330",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH1])!@;-[CX3:3]([NX3H1])=[O:4]",
+      "angles_deg": [
+        0.0,
+        60.0,
+        120.0,
+        180.0,
+        240.0,
+        300.0
+      ],
+      "weights": [
+        0.1667,
+        0.1667,
+        0.1667,
+        0.1667,
+        0.1667,
+        0.1667
+      ],
+      "name": "crystalff_331",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH1])!@;-[CX3:3]([NX3H0])=[O:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_332",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[C:3]([NH1,NH2])=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_333",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[C:3]([NH0])=[O:4]",
+      "angles_deg": [
+        0.0,
+        60.0,
+        120.0,
+        180.0,
+        240.0,
+        300.0
+      ],
+      "weights": [
+        0.1667,
+        0.1667,
+        0.1667,
+        0.1667,
+        0.1667,
+        0.1667
+      ],
+      "name": "crystalff_334",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[C:3]([NH1,NH2])=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_335",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[s:1][c:2]([aX2,cH1])!@;-[CX3:3](O)=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_336",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[s:1][c:2]([aX2,cH1])!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_337",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0](F)):1][c:2]([cH1])!@;-[CX3:3]([O,N])=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_338",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0]F):1][c:2]([cH1])!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_339",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0](Cl)):1][c:2]([cH1])!@;-[CX3:3]([CX3H])=[O:4]",
+      "angles_deg": [
+        45.0,
+        135.0,
+        225.0,
+        315.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_340",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0](Cl)):1][c:2]([cH1])!@;-[CX3H:3]=[O:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_341",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0](Cl)):1][c:2]([cH1])!@;-[CX3:3](O)=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_342",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX3H1:1][a:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_343",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][c:2]([cH1])!@;-[CX3H1:3]=[O:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_344",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0&r6:1][c&r6:2]([c&r6])!@;-[CX3:3]([!O])=[O:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_345",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[nX2H0:1][a:2]([nX2H0])!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_346",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[$([cH0]!@;-[*^2]):1][c:2]([cH1])!@[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_347",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH1])!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_348",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        90.0,
+        180.0,
+        270.0
+      ],
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "name": "crystalff_349",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[CX3:3]([CX3H0])=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_350",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_351",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][a:2]!@;-[CX3:3]=[O:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_352",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([nX2])!@;-[CX3:3]=[NX3:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_353",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([nX3H1])!@;-[CX3:3]=[NX2:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_354",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([nX2])!@;-[CX3:3]=[NX2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_355",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([$([cH0][OH1])])!@;-[CX3:3]=[NX2:4]",
+      "angles_deg": [
+        180.0
+      ],
+      "weights": [
+        1.0
+      ],
+      "name": "crystalff_356",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH0])!@;-[CX3x0:3]=[NX2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_357",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH1:1][c:2]([cH1])!@;-[CX3:3]=[NX2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_358",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[cH0:1][c:2]([cH0])!@;-[CX3!r:3]=[NX2!r:4]",
+      "angles_deg": [
+        0.0,
+        180.0,
+        298.2,
+        61.8,
+        118.2,
+        241.8
+      ],
+      "weights": [
+        0.2753,
+        0.2753,
+        0.1124,
+        0.1124,
+        0.1124,
+        0.1124
+      ],
+      "name": "crystalff_359",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][c:2]!@;-[CX3:3]=[CX3H0:4]",
+      "angles_deg": [
+        51.2,
+        128.8,
+        231.2,
+        308.8,
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.1693,
+        0.1693,
+        0.1693,
+        0.1693,
+        0.1613,
+        0.1613
+      ],
+      "name": "crystalff_360",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][a:2]!@;-[CX3:3]=[CX3H2:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_361",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[a:1][a:2]!@;-[CX3:3]=[CX3H1:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_362",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[*:1][SX2:2]!@;-[SX2:3][*:4]",
+      "angles_deg": [
+        90.0,
+        270.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_363",
+      "source": "rdkit_crystalff_v2"
+    },
+    {
+      "smarts": "[*:1][X3,X2:2]=[X3,X2:3][*:4]",
+      "angles_deg": [
+        0.0,
+        180.0
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "name": "crystalff_364",
+      "source": "rdkit_crystalff_v2"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+name: Upload Python Package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v7.4.0
+
+      - name: Build package
+        run: uv build
+
+      - name: Publish package
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
