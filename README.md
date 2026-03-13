@@ -1,7 +1,6 @@
 # openconf
 
 [![License](https://img.shields.io/github/license/rowansci/openconf)](https://github.com/rowansci/openconf/blob/master/LICENSE)
-[![Powered by: Pixi](https://img.shields.io/badge/Powered_by-Pixi-facc15)](https://pixi.sh)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Typing: ty](https://img.shields.io/badge/typing-ty-EFC621.svg)](https://github.com/astral-sh/ty)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/rowansci/openconf/test.yml?branch=master&logo=github-actions)](https://github.com/rowansci/openconf/actions/)
