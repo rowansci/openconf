@@ -147,9 +147,6 @@ The stratified results reveal that OpenConf's aggregate advantage is almost enti
 
 The picture changes sharply at 7–9 rotatable bonds (23 molecules): OpenConf achieves 78.3% success versus 52.2% and 47.8% for the ETKDG baselines — a **+26 percentage point advantage**. This is the regime where random ETKDG embedding fails to systematically explore torsional combinations, and where OpenConf's MCMM torsion-biased search with explicit ring flip moves provides genuine value.
 
-![Stratified recall N=50](../scripts/blog_figures/stratified_recall_N50.png)
-![RMSD CDF stratified N=50](../scripts/blog_figures/rmsd_cdf_stratified_N50.png)
-
 At 10+ rotatable bonds (7 molecules), all methods struggle. OpenConf is the only method to exceed 0% for etkdg_raw, reaching 28.6%, but absolute success rates remain low. These are the hardest molecules in the dataset and represent an unsolved challenge for rapid conformer generation. The macrocycle (n=1) is similarly unsolved by all methods.
 
 ---
@@ -179,10 +176,6 @@ OpenConf's near-flat runtime from N=50 to N=200 reflects that its internal pool 
 | **openconf** | **1.59s** |
 
 OpenConf has a tighter runtime distribution. The ETKDG p95 is dominated by molecules that require many embedding attempts or slow MMFF convergence.
-
-![Runtime vs budget](../scripts/blog_figures/runtime_vs_budget.png)
-![Quality-speed Pareto](../scripts/blog_figures/pareto_quality_speed.png)
-![Stratified recall N=200](../scripts/blog_figures/stratified_recall_N200.png)
 
 ---
 
