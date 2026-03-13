@@ -1,0 +1,43 @@
+exclude: '.pixi/'
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+    - id: check-yaml
+    - id: check-toml
+    - id: end-of-file-fixer
+    - id: trailing-whitespace
+
+- repo: local
+  hooks:
+  - id: ruff
+    name: ruff-format
+    stages: [pre-commit, pre-push]
+    language: system
+    entry: uv run ruff format .
+    types: [python]
+    pass_filenames: false
+
+  - id: ruff
+    name: ruff-check
+    stages: [pre-commit, pre-push]
+    language: system
+    entry: uv run ruff check . --fix
+    types: [python]
+    pass_filenames: false
+
+  - id: ty
+    name: ty
+    stages: [pre-commit, pre-push]
+    language: system
+    entry: uv run ty check
+    types: [python]
+    pass_filenames: false
+
+  - id: pytest
+    name: pytest
+    stages: [pre-commit, pre-push]
+    language: system
+    entry: uv run pytest
+    types: [python]
+    pass_filenames: false
