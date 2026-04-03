@@ -732,7 +732,6 @@ class HybridProposer:
             energies.append(ff.CalcEnergy() if ff else float("inf"))
         return energies
 
-
     def full_refine_final_constrained(
         self,
         mol: Chem.Mol,
@@ -830,7 +829,9 @@ def run_hybrid_generation(
         seed_source = "seed_pose"
     else:
         # Standard mode: ETKDG seeding.
-        n_seeds = config.n_seeds if config.n_seeds is not None else _compute_n_seeds(rotor_model, config.seed_n_per_rotor)
+        n_seeds = (
+            config.n_seeds if config.n_seeds is not None else _compute_n_seeds(rotor_model, config.seed_n_per_rotor)
+        )
         seeds = proposer.generate_seeds(n_seeds)
         seed_source = "seed_etkdg"
 

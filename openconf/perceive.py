@@ -396,9 +396,7 @@ def filter_constrained_rotors(rotor_model: "RotorModel", constrained_atoms: froz
             # else: constrained atoms on both sides — exclude this rotor
 
     # Ring flips: keep only rings with no constrained atoms
-    free_ring_flips = [
-        rf for rf in rotor_model.ring_flips if not constrained_atoms & frozenset(rf.ring_atoms)
-    ]
+    free_ring_flips = [rf for rf in rotor_model.ring_flips if not constrained_atoms & frozenset(rf.ring_atoms)]
 
     adj = _build_rotor_adjacency(free_rotors, mol)
 

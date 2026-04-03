@@ -56,8 +56,7 @@ def test_constrained_atoms_exactly_fixed():
         for i in ring_atoms:
             pos = np.array(conf.GetAtomPosition(i))
             assert np.allclose(pos, ref_pos[i], atol=1e-9), (
-                f"Atom {i} drifted in conformer {rec.conf_id}: "
-                f"ref={ref_pos[i]}, got={pos}"
+                f"Atom {i} drifted in conformer {rec.conf_id}: ref={ref_pos[i]}, got={pos}"
             )
 
 
@@ -92,9 +91,9 @@ def test_free_atoms_do_move():
 
     # At least two conformers should differ in at least one free atom
     assert len(all_positions) >= 2
-    assert not all(
-        np.allclose(all_positions[0], p, atol=0.01) for p in all_positions[1:]
-    ), "All conformers have identical free-atom coordinates — no exploration occurred"
+    assert not all(np.allclose(all_positions[0], p, atol=0.01) for p in all_positions[1:]), (
+        "All conformers have identical free-atom coordinates — no exploration occurred"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -211,8 +210,7 @@ def test_filter_constrained_rotors_free_side_reoriented():
         atom_i, atom_j = rotor.atom_idxs
         moving = _atoms_on_side(mol, atom_j, atom_i)
         assert not constrained & moving, (
-            f"Rotor {rotor.atom_idxs} has constrained atoms in moving fragment: "
-            f"{constrained & moving}"
+            f"Rotor {rotor.atom_idxs} has constrained atoms in moving fragment: {constrained & moving}"
         )
 
 
@@ -237,10 +235,7 @@ def test_filter_constrained_ring_flips():
     assert len(rm.ring_flips) == 1
 
     # Constrain all ring atoms (indices vary with H-addition; use atom symbols)
-    ring_indices = frozenset(
-        i for i, a in enumerate(mol.GetAtoms())
-        if a.IsInRing() and a.GetAtomicNum() == 6
-    )
+    ring_indices = frozenset(i for i, a in enumerate(mol.GetAtoms()) if a.IsInRing() and a.GetAtomicNum() == 6)
     filtered = filter_constrained_rotors(rm, ring_indices)
     assert len(filtered.ring_flips) == 0, "Ring flip should be removed when ring is constrained"
 

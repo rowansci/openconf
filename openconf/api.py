@@ -246,18 +246,14 @@ def generate_conformers_from_pose(
 
     # Resolve config — default to "analogue" preset for this entry point.
     if config is not None:
-        resolved_config = ConformerConfig(**{
-            k: v for k, v in config.__dict__.items() if k != "constraint_spec"
-        })
+        resolved_config = ConformerConfig(**{k: v for k, v in config.__dict__.items() if k != "constraint_spec"})
     elif preset is not None:
         resolved_config = preset_config(preset)
     else:
         resolved_config = preset_config("analogue")
 
     # Attach the constraint spec (overrides any constraint_spec already in config).
-    resolved_config.constraint_spec = ConstraintSpec(
-        constrained_atoms=frozenset(constrained_atoms)
-    )
+    resolved_config.constraint_spec = ConstraintSpec(constrained_atoms=frozenset(constrained_atoms))
 
     # Prepare molecule — AddHs is a no-op if Hs are already present.
     prepped_mol = prepare_molecule(mol, add_hs=True)
