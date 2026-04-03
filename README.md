@@ -40,7 +40,7 @@ ensemble.to_xyz("output.xyz")
 
 ### Named Presets
 
-Four use-case presets are available out of the box:
+Five use-case presets are available out of the box:
 
 ```python
 from openconf import generate_conformers
@@ -50,6 +50,8 @@ ensemble = generate_conformers(mol, preset="ensemble")      # property predictio
 ensemble = generate_conformers(mol, preset="spectroscopic") # NMR / IR / VCD
 ensemble = generate_conformers(mol, preset="docking")       # docking pose recovery
 ```
+
+For FEP-style analogue generation from a fixed pose, see [`generate_conformers_from_pose`](#5-analogue--fep-style-r-group-exploration) below.
 
 ### Custom Configuration
 
@@ -106,7 +108,7 @@ config.max_out = 200          # override a single field
 ensemble = generate_conformers(mol, config=config)
 ```
 
-Available presets: `"rapid"`, `"ensemble"`, `"spectroscopic"`, `"docking"`.
+Available presets: `"rapid"`, `"ensemble"`, `"spectroscopic"`, `"docking"`, `"analogue"`.
 
 Below are representative wall-clock timings measured on a single CPU core
 (Apple M2 Pro), mean over 3 runs.
@@ -325,18 +327,85 @@ ensemble.to_sdf("docking_input.sdf")
 
 ---
 
+### 5. Analogue / FEP-style R-group exploration
+
+Generate conformers for an MCS-aligned analogue while keeping the core scaffold
+exactly fixed at the input pose. The correct entry point here is
+`generate_conformers_from_pose` rather than `generate_conformers`.
+
+- Starts from the **supplied conformer** — no ETKDG seeding
+- Only **free terminal rotors** are explored (those whose moving fragment is
+  entirely outside the constrained core)
+- MMFF minimization uses stiff **position restraints** on all constrained atoms,
+  then snaps them to exact starting coordinates so there is zero drift
+- **Global shake** is suppressed to avoid thrashing the starting pose
+
+```python
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from openconf import generate_conformers_from_pose
+
+# Suppose we have an MCS-aligned analogue with a propyl substituent
+# replacing the butyl chain on a benzene scaffold.
+mol = Chem.MolFromSmiles("CCCc1ccccc1")
+mol = Chem.AddHs(mol)
+AllChem.EmbedMolecule(mol, AllChem.ETKDGv3())
+
+# Ring heavy-atom indices — these must not move
+ring_atoms = [3, 4, 5, 6, 7, 8]
+
+ensemble = generate_conformers_from_pose(mol, constrained_atoms=ring_atoms)
+ensemble.to_sdf("analogues.sdf")
+```
+
+The default preset (`"analogue"`) returns up to 50 conformers. Pass `preset=` or
+`config=` to override:
+
+```python
+from openconf import ConformerConfig, generate_conformers_from_pose
+
+# Fewer conformers, faster turnaround
+config = ConformerConfig(max_out=10, n_steps=60, pool_max=200)
+ensemble = generate_conformers_from_pose(mol, constrained_atoms=ring_atoms, config=config)
+```
+
+<details><summary>Full analogue preset equivalent</summary>
+
+```python
+from openconf import ConformerConfig, PrismConfig, generate_conformers_from_pose
+
+config = ConformerConfig(
+    max_out=50,
+    pool_max=500,
+    n_steps=150,
+    energy_window_kcal=10.0,
+    do_final_refine=True,
+    minimize_batch_size=8,
+    parent_strategy="softmax",
+    final_select="diverse",
+    prism_config=PrismConfig(energy_window_kcal=10.0),
+)
+ensemble = generate_conformers_from_pose(mol, constrained_atoms=ring_atoms, config=config)
+```
+
+</details>
+
+---
+
 ### Configuration Quick Reference
 
-| Parameter | Rapid | Ensemble | Spectroscopic | Docking |
-|---|---|---|---|---|
-| `max_out` | 5 | 50 | 100 | 250 |
-| `n_steps` | 30 | 200 | 400 | 500 |
-| `energy_window_kcal` | 20 | 10 | 5 | 18 |
-| `seed_n_per_rotor` | 2 | 3 | 5 | 4 |
-| `seed_prune_rms_thresh` | 1.5 | 1.0 | 0.5 | 0.8 |
-| `do_final_refine` | False | True | True | False |
-| `parent_strategy` | softmax | softmax | softmax | uniform |
-| `final_select` | diverse | diverse | energy | diverse |
+| Parameter | Rapid | Ensemble | Spectroscopic | Docking | Analogue |
+|---|---|---|---|---|---|
+| `max_out` | 5 | 50 | 100 | 250 | 50 |
+| `n_steps` | 30 | 200 | 400 | 500 | 150 |
+| `energy_window_kcal` | 20 | 10 | 5 | 18 | 10 |
+| `seed_n_per_rotor` | 2 | 3 | 5 | 4 | — |
+| `seed_prune_rms_thresh` | 1.5 | 1.0 | 0.5 | 0.8 | — |
+| `do_final_refine` | False | True | True | False | True |
+| `parent_strategy` | softmax | softmax | softmax | uniform | softmax |
+| `final_select` | diverse | diverse | energy | diverse | diverse |
+
+*Analogue mode uses `generate_conformers_from_pose`; seeding parameters are unused because ETKDG is skipped.*
 
 ## How It Works
 
@@ -380,11 +449,13 @@ openconf is not recommended for macrocycles (ring size ≥ 12). On macrocyclic r
 
 - `generate_conformers(mol, method="hybrid", config=None)` - Main entry point
 - `generate_conformers_from_smiles(smiles, ...)` - Convenience wrapper
+- `generate_conformers_from_pose(mol, constrained_atoms, config=None)` - FEP-style analogue generation from an aligned pose
 
 ### Configuration Classes
 
 - `ConformerConfig` - Main configuration
 - `PrismConfig` - PRISM Pruner settings
+- `ConstraintSpec` - Positional constraints for pose-locked generation
 
 ### Data Classes
 

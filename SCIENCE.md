@@ -12,6 +12,38 @@ Seed count is computed automatically from the molecular topology rather than set
 
 The key to making this efficient is aggressive deduplication. Without it, the search quickly fills with near-identical structures that differ only in insignificant ways. openconf uses PRISM Pruner, which implements a cached divide-and-conquer algorithm for comparing conformers by RMSD and moment of inertia. Rather than doing O(N²) all-to-all comparisons, PRISM sorts conformers by energy and recursively partitions them, exploiting the fact that similar structures tend to cluster. This lets openconf maintain large internal pools (thousands of conformers) while keeping only the truly unique ones. The final selection step returns the lowest-energy conformers after PRISM deduplication, ensuring the output ensemble contains distinct, low-strain geometries.
 
+## Pose-Constrained Generation (FEP / Analogue Mode)
+
+A common need in lead optimization is generating conformers for an analogue where the core scaffold is already placed — for example, the result of an MCS alignment from a co-crystal structure. Standard ETKDG seeding is not appropriate here: it randomizes the entire molecule and cannot be guaranteed to recover the aligned pose. Instead, openconf supports constrained generation via `generate_conformers_from_pose`.
+
+The idea is to identify a set of *constrained atoms* (the MCS core) whose Cartesian positions must remain fixed at the input geometry, and to explore only the remaining degrees of freedom — the *free rotors*, i.e., bonds whose entire moving fragment lies outside the constrained set. The algorithm adapts in three ways:
+
+**Seeding.** ETKDG is skipped entirely. The single input conformer is used directly as the seed, immediately fast-minimized with position restraints to relax any bond-length or angle strain in the free fragment before exploration begins.
+
+**Move set.** Only free rotors (and ring flips of entirely free rings) are sampled. The global shake move is suppressed: it would randomize 50–80% of all rotors, some of which pass through the core, defeating the constraint. Move probability that would have gone to global shake is redistributed to `single_rotor` moves.
+
+**Minimization.** Every MMFF minimization call applies `MMFFAddPositionConstraint` to each constrained atom with a stiff harmonic force constant (default 1000 kcal/mol/Å²). After minimization converges, constrained atom coordinates are snapped back to the exact reference values, eliminating any residual drift. Final refinement applies the same treatment.
+
+The rotor filtering logic uses a BFS traversal: for each bond (i, j) in the rotor list, we compute the set of atoms reachable from j without crossing (i, j). If this moving fragment contains no constrained atoms, the rotor is free. If the moving fragment *does* contain constrained atoms but the opposite side (reachable from i) does not, the rotor is flipped so that the free atoms become the moving side. Rotors where constrained atoms appear on both sides are excluded entirely — they cannot be rotated without moving the core.
+
+```python
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from openconf import generate_conformers_from_pose
+
+# MCS-aligned analogue: ethyl group added to a benzene scaffold
+mol = Chem.MolFromSmiles("CCc1ccccc1")
+mol = Chem.AddHs(mol)
+AllChem.EmbedMolecule(mol, AllChem.ETKDGv3())  # or use your aligned pose
+
+# Constrain the benzene ring (heavy-atom indices 2–7)
+ensemble = generate_conformers_from_pose(mol, constrained_atoms=list(range(2, 8)))
+```
+
+The `"analogue"` preset (50 conformers, 150 steps, softmax parent strategy, full refinement) is the default. Because the free rotor space is much smaller than the full conformational space, 150 steps is usually sufficient for thorough coverage of simple R-groups. For larger substituents with many free rotors, increase `n_steps` accordingly.
+
+**Atom index convention.** `Chem.AddHs` appends new H atoms after all existing atoms, preserving all prior indices. So whether you pass a heavy-atom-only mol (indices 0…N−1 for heavy atoms) or an H-added mol (same heavy-atom indices plus new H indices), the constrained atom indices remain valid after the internal `AddHs` call.
+
 ## Tuning Guide
 
 For the most common workflows, named presets are the easiest starting point:

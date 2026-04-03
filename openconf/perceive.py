@@ -324,6 +324,95 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
     return flips
 
 
+def _atoms_on_side(mol: Chem.Mol, start_atom: int, excluded_atom: int) -> frozenset[int]:
+    """BFS from start_atom without crossing the bond to excluded_atom.
+
+    Returns the set of atom indices reachable from start_atom when the bond
+    between excluded_atom and start_atom is severed. For acyclic bonds this
+    gives the atoms in one fragment; ring bonds are already excluded from the
+    rotor list so the result is always well-defined.
+
+    Args:
+        mol: RDKit molecule.
+        start_atom: Index to start BFS from (one end of the bond).
+        excluded_atom: The other end of the bond — never visited.
+
+    Returns:
+        frozenset of atom indices on start_atom's side of the bond.
+    """
+    visited: set[int] = {start_atom}
+    queue = [start_atom]
+    while queue:
+        current = queue.pop()
+        for neighbor in mol.GetAtomWithIdx(current).GetNeighbors():
+            nb_idx = neighbor.GetIdx()
+            if nb_idx not in visited and nb_idx != excluded_atom:
+                visited.add(nb_idx)
+                queue.append(nb_idx)
+    return frozenset(visited)
+
+
+def filter_constrained_rotors(rotor_model: "RotorModel", constrained_atoms: frozenset[int]) -> "RotorModel":
+    """Return a new RotorModel containing only rotors that move no constrained atoms.
+
+    A rotor around bond (i, j) is included if the fragment on one side of the
+    bond contains no constrained atoms (meaning we can rotate that fragment
+    freely). When the free fragment happens to be on the i-side rather than the
+    j-side as stored in dihedral_atoms, the rotor is flipped so the moving
+    fragment is always the free one.
+
+    Ring flips are kept only when the entire ring is free of constrained atoms.
+
+    Args:
+        rotor_model: Full rotor model built by build_rotor_model.
+        constrained_atoms: Atom indices that must not move.
+
+    Returns:
+        New RotorModel with only free rotors and free ring flips.
+    """
+    mol = rotor_model.mol
+    free_rotors: list[Rotor] = []
+
+    for rotor in rotor_model.rotors:
+        atom_i, atom_j = rotor.atom_idxs
+        moving_j = _atoms_on_side(mol, atom_j, atom_i)
+
+        if not constrained_atoms & moving_j:
+            # j-side is free — use rotor as-is (SetDihedralDeg moves j-side)
+            free_rotors.append(rotor)
+        else:
+            moving_i = _atoms_on_side(mol, atom_i, atom_j)
+            if not constrained_atoms & moving_i:
+                # i-side is free — flip so the free side is the moving side
+                a, i, j, b = rotor.dihedral_atoms
+                free_rotors.append(
+                    Rotor(
+                        bond_idx=rotor.bond_idx,
+                        atom_idxs=(atom_j, atom_i),
+                        dihedral_atoms=(b, j, i, a),
+                        rotor_type=rotor.rotor_type,
+                    )
+                )
+            # else: constrained atoms on both sides — exclude this rotor
+
+    # Ring flips: keep only rings with no constrained atoms
+    free_ring_flips = [
+        rf for rf in rotor_model.ring_flips if not constrained_atoms & frozenset(rf.ring_atoms)
+    ]
+
+    adj = _build_rotor_adjacency(free_rotors, mol)
+
+    return RotorModel(
+        mol=mol,
+        rotors=free_rotors,
+        adj=adj,
+        ring_info=rotor_model.ring_info,
+        ring_flips=free_ring_flips,
+        heavy_atom_indices=rotor_model.heavy_atom_indices,
+        n_rotatable=len(free_rotors),
+    )
+
+
 def build_rotor_model(mol: Chem.Mol) -> RotorModel:
     """Build a rotor model for a molecule.
 

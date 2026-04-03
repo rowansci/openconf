@@ -9,8 +9,8 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms
 
-from ..config import ConformerConfig
-from ..perceive import RotorModel
+from ..config import ConformerConfig, ConstraintSpec
+from ..perceive import RotorModel, filter_constrained_rotors
 from ..pool import ConformerPool
 from ..relax import get_minimizer, minimize_confs_mmff
 from ..torsionlib import TorsionLibrary
@@ -148,6 +148,7 @@ class HybridProposer:
         rotor_model: RotorModel,
         torsion_lib: TorsionLibrary,
         config: ConformerConfig,
+        constraint_spec: ConstraintSpec | None = None,
     ):
         """Initialize the hybrid proposer.
 
@@ -156,7 +157,12 @@ class HybridProposer:
             rotor_model: Rotor model for the molecule.
             torsion_lib: Torsion library for biased sampling.
             config: Generation configuration.
+            constraint_spec: Optional positional constraints. When provided,
+                ETKDG seeding is replaced by seeding from an existing conformer,
+                global shake moves are suppressed, and minimization applies MMFF
+                position restraints to keep constrained atoms fixed.
         """
+        self.constraint_spec = constraint_spec
         self.mol = mol
         self.rotor_model = rotor_model
         self.torsion_lib = torsion_lib
@@ -193,6 +199,15 @@ class HybridProposer:
         self._staging_mmff_props = AllChem.MMFFGetMoleculeProperties(self._staging_mol, mmffVariant="MMFF94s")
         if self._staging_mmff_props is not None:
             self._staging_mmff_props.SetMMFFDielectricConstant(config.fast_dielectric)
+
+        # Store reference positions for constrained atoms so we can snap them
+        # back to exactly the starting pose after each minimization. The stiff
+        # position restraints keep drift tiny, but this eliminates it entirely.
+        self._constrained_ref_pos: dict[int, np.ndarray] = {}
+        if constraint_spec is not None and mol.GetNumConformers() > 0:
+            ref_conf = mol.GetConformer(mol.GetConformers()[0].GetId())
+            for idx in constraint_spec.constrained_atoms:
+                self._constrained_ref_pos[idx] = np.array(ref_conf.GetAtomPosition(idx))
 
         # Set random seed
         if config.random_seed is not None:
@@ -253,6 +268,105 @@ class HybridProposer:
             )
             for cid in conf_ids
         ]
+
+    def _reset_constrained_positions(self, mol: Chem.Mol, conf_id: int) -> None:
+        """Snap constrained atoms back to their exact reference coordinates.
+
+        Called after every constrained minimization to eliminate any residual
+        drift that the position restraints did not fully suppress.
+
+        Args:
+            mol: RDKit molecule containing the conformer.
+            conf_id: Conformer ID to update in place.
+        """
+        if not self._constrained_ref_pos:
+            return
+        conf = mol.GetConformer(conf_id)
+        for idx, pos in self._constrained_ref_pos.items():
+            conf.SetAtomPosition(idx, pos.tolist())
+
+    def seed_from_conformer(self, conf_id: int) -> list[tuple[int, float]]:
+        """Use an existing conformer as the sole seed (constrained mode).
+
+        Fast-minimizes the conformer with position restraints applied to
+        constrained atoms so the core stays at the MCS-aligned pose.
+
+        Args:
+            conf_id: ID of the starting conformer already present in self.mol.
+
+        Returns:
+            List of one (conf_id, energy_kcal) tuple, or empty list on failure.
+        """
+        energy = self._minimize_constrained(self.mol, conf_id, use_fast=True)
+        if not np.isfinite(energy):
+            return []
+        return [(conf_id, energy)]
+
+    def _minimize_constrained(self, mol: Chem.Mol, conf_id: int, use_fast: bool = True) -> float:
+        """Minimize a conformer with MMFF position restraints on constrained atoms.
+
+        Args:
+            mol: RDKit molecule containing the conformer.
+            conf_id: Conformer ID to minimize in place.
+            use_fast: If True, use fast_minimizer iterations; otherwise full.
+
+        Returns:
+            Energy in kcal/mol after minimization, or inf on failure.
+        """
+        assert self.constraint_spec is not None
+        minimizer = self.fast_minimizer if use_fast else self.full_minimizer
+        props = getattr(minimizer, "_mmff_props", None)
+
+        try:
+            if props is not None:
+                ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=int(conf_id))
+                if ff is None:
+                    return float("inf")
+                for idx in self.constraint_spec.constrained_atoms:
+                    ff.MMFFAddPositionConstraint(idx, 0.0, self.constraint_spec.position_force_constant)
+                ff.Minimize(maxIts=int(minimizer.max_iters))
+                energy = float(ff.CalcEnergy())
+            else:
+                # UFF fallback — no position constraints available, minimize freely
+                ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(conf_id))
+                if ff is None:
+                    return float("inf")
+                ff.Minimize(maxIts=int(minimizer.max_iters))
+                energy = float(ff.CalcEnergy())
+        except (ValueError, RuntimeError):
+            return float("inf")
+
+        # Snap constrained atoms back to exact reference coordinates, eliminating
+        # any residual drift that the position restraints did not fully suppress.
+        self._reset_constrained_positions(mol, conf_id)
+        return energy
+
+    def _propose_constrained(self, pool: "ConformerPool", step: int) -> tuple[int, float, str] | None:
+        """Propose a single conformer using constrained minimization.
+
+        Args:
+            pool: Conformer pool for parent selection.
+            step: Current step number.
+
+        Returns:
+            Tuple of (conf_id, energy, source) or None if failed.
+        """
+        result = self._generate_candidate(pool, step)
+        if result is None:
+            return None
+        new_conf_id, move_type = result
+
+        try:
+            energy = self._minimize_constrained(self.mol, new_conf_id, use_fast=True)
+        except Exception:
+            self.mol.RemoveConformer(new_conf_id)
+            return None
+
+        if not np.isfinite(energy):
+            self.mol.RemoveConformer(new_conf_id)
+            return None
+
+        return (new_conf_id, energy, f"hybrid_{move_type}")
 
     def _sample_angle(self, rotor_idx: int) -> float:
         """Sample an angle from the torsion library.
@@ -400,12 +514,19 @@ class HybridProposer:
         Returns:
             Move type string.
         """
-        # Periodic global shake
-        if step > 0 and step % self.config.shake_period == 0:
+        # Periodic global shake — suppressed in constrained mode (would thrash
+        # the carefully placed starting pose).
+        if self.constraint_spec is None and step > 0 and step % self.config.shake_period == 0:
             return "global_shake"
 
-        # Weighted random selection, suppressing ring_flip when no rings exist.
+        # Weighted random selection, suppressing unavailable move types.
         probs = dict(self.config.move_probs)
+
+        # Remove global_shake from weighted pool in constrained mode.
+        if self.constraint_spec is not None:
+            extra = probs.pop("global_shake", 0.0)
+            probs["single_rotor"] = probs.get("single_rotor", 0.0) + extra
+
         if not self.rotor_model.ring_flips and "ring_flip" in probs:
             extra = probs.pop("ring_flip")
             # redistribute to single_rotor
@@ -497,6 +618,10 @@ class HybridProposer:
         staging props (fast_dielectric applied), then transfers accepted
         (finite-energy) conformers back to self.mol.
 
+        When constraint_spec is set, falls back to sequential per-conformer
+        minimization with MMFF position restraints (MMFFOptimizeMoleculeConfs
+        does not support custom force field terms).
+
         Args:
             pool: Conformer pool for parent selection.
             step: Current step number (used for move-type selection of first item).
@@ -504,6 +629,15 @@ class HybridProposer:
         Returns:
             List of (conf_id, energy, source) tuples for accepted conformers.
         """
+        # Constrained mode: per-conformer MMFF with position restraints.
+        if self.constraint_spec is not None:
+            results: list[tuple[int, float, str]] = []
+            for i in range(self.config.minimize_batch_size):
+                result = self._propose_constrained(pool, step + i)
+                if result is not None:
+                    results.append(result)
+            return results
+
         batch_size = self.config.minimize_batch_size
 
         # 1. Generate candidates on self.mol (move applied, clash-checked).
@@ -599,6 +733,65 @@ class HybridProposer:
         return energies
 
 
+    def full_refine_final_constrained(
+        self,
+        mol: Chem.Mol,
+        final_ids: list[int],
+        max_iters: int = 200,
+        dielectric: float = 4.0,
+    ) -> list[float]:
+        """Run full MMFF minimization on final conformers with position restraints.
+
+        Used in constrained mode so the core remains pinned to the MCS pose
+        during final refinement.
+
+        Args:
+            mol: RDKit molecule containing the conformers to refine.
+            final_ids: Conformer IDs to refine.
+            max_iters: Maximum MMFF iterations.
+            dielectric: Dielectric constant for the refinement pass.
+
+        Returns:
+            List of refined energies in kcal/mol, aligned to final_ids.
+        """
+        assert self.constraint_spec is not None
+
+        # Keep only finals before refining
+        final_set = set(final_ids)
+        for conf in list(mol.GetConformers()):
+            if conf.GetId() not in final_set:
+                mol.RemoveConformer(conf.GetId())
+
+        props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant="MMFF94s")
+        energies: list[float] = []
+
+        for cid in final_ids:
+            try:
+                if props is not None:
+                    props.SetMMFFDielectricConstant(dielectric)
+                    ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=int(cid))
+                    if ff is None:
+                        energies.append(float("inf"))
+                        continue
+                    for idx in self.constraint_spec.constrained_atoms:
+                        ff.MMFFAddPositionConstraint(idx, 0.0, self.constraint_spec.position_force_constant)
+                    ff.Minimize(maxIts=int(max_iters))
+                    energies.append(float(ff.CalcEnergy()))
+                else:
+                    ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(cid))
+                    if ff is None:
+                        energies.append(float("inf"))
+                        continue
+                    ff.Minimize(maxIts=int(max_iters))
+                    energies.append(float(ff.CalcEnergy()))
+            except (ValueError, RuntimeError):
+                energies.append(float("inf"))
+                continue
+            self._reset_constrained_positions(mol, cid)
+
+        return energies
+
+
 def run_hybrid_generation(
     mol: Chem.Mol,
     rotor_model: RotorModel,
@@ -614,16 +807,35 @@ def run_hybrid_generation(
     Returns:
         Tuple of (mol, conf_ids, energies).
     """
+    constraint_spec = config.constraint_spec
+
+    # Filter rotors before building the proposer so _rotor_angles is computed
+    # only for free rotors.
+    if constraint_spec is not None:
+        rotor_model = filter_constrained_rotors(rotor_model, constraint_spec.constrained_atoms)
+
     torsion_lib = TorsionLibrary()
-    proposer = HybridProposer(mol, rotor_model, torsion_lib, config)
+    proposer = HybridProposer(mol, rotor_model, torsion_lib, config, constraint_spec=constraint_spec)
     pool = ConformerPool(mol, config)
 
-    # Resolve seed count: explicit config value or auto-computed from topology.
-    n_seeds = config.n_seeds if config.n_seeds is not None else _compute_n_seeds(rotor_model, config.seed_n_per_rotor)
-    seeds = proposer.generate_seeds(n_seeds)
+    if constraint_spec is not None:
+        # Constrained mode: seed from the single starting conformer already in mol.
+        existing_ids = [c.GetId() for c in mol.GetConformers()]
+        if not existing_ids:
+            raise ValueError(
+                "Constrained conformer generation requires a starting conformer. "
+                "Use generate_conformers_from_pose to supply one."
+            )
+        seeds = proposer.seed_from_conformer(existing_ids[0])
+        seed_source = "seed_pose"
+    else:
+        # Standard mode: ETKDG seeding.
+        n_seeds = config.n_seeds if config.n_seeds is not None else _compute_n_seeds(rotor_model, config.seed_n_per_rotor)
+        seeds = proposer.generate_seeds(n_seeds)
+        seed_source = "seed_etkdg"
 
     for conf_id, energy in seeds:
-        pool.insert(conf_id, energy, source="seed_etkdg")
+        pool.insert(conf_id, energy, source=seed_source)
 
     # Run exploration.
     # Batch mode: accumulate minimize_batch_size proposals, minimize in parallel.
@@ -653,9 +865,14 @@ def run_hybrid_generation(
 
     # Full refinement on the final set (optional — skip for docking-prep workflows).
     if config.do_final_refine:
-        final_energies = proposer.full_refine_final(
-            mol, final_ids, config.num_threads, config.max_minimization_iters, dielectric=config.final_dielectric
-        )
+        if constraint_spec is not None:
+            final_energies = proposer.full_refine_final_constrained(
+                mol, final_ids, config.max_minimization_iters, dielectric=config.final_dielectric
+            )
+        else:
+            final_energies = proposer.full_refine_final(
+                mol, final_ids, config.num_threads, config.max_minimization_iters, dielectric=config.final_dielectric
+            )
     else:
         # Return the fast-minimized energies already stored in the pool.
         energy_map = {cid: (rec.energy_kcal or float("inf")) for cid, rec in pool.records.items()}
