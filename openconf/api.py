@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from rdkit import Chem
 
-from .config import ConformerConfig, ConformerPreset, preset_config
+from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_config
 from .perceive import build_rotor_model, prepare_molecule
 from .pool import ConformerRecord
 from .propose.hybrid import run_hybrid_generation
@@ -187,6 +187,91 @@ def generate_conformers(
     ]
 
     return ConformerEnsemble(mol=mol, records=records)
+
+
+def generate_conformers_from_pose(
+    mol: Chem.Mol,
+    constrained_atoms: list[int] | frozenset[int],
+    config: ConformerConfig | None = None,
+    preset: ConformerPreset | None = None,
+) -> ConformerEnsemble:
+    """Generate conformers for an MCS-aligned pose, keeping core atoms fixed.
+
+    Designed for FEP-style analogue generation: you supply a molecule with an
+    existing conformer (e.g. the result of MCS alignment) and the indices of
+    the atoms that must remain fixed (the MCS core / scaffold). Only the free
+    terminal rotors are explored, so the search is faster and stays consistent
+    with the bound pose.
+
+    **Atom index convention:** pass indices as they appear in *mol*. If *mol*
+    already has explicit hydrogens the indices are used as-is. If *mol* has only
+    heavy atoms, ``Chem.AddHs`` is called internally — it appends new H atoms at
+    the end and leaves all existing indices unchanged, so heavy-atom indices
+    remain valid after H addition.
+
+    Args:
+        mol: RDKit molecule with at least one conformer (the MCS-aligned pose).
+            If multiple conformers are present, the first is used as the seed.
+        constrained_atoms: Atom indices of the core scaffold that must not move.
+            These are indices into *mol* as supplied (see note above).
+        config: Configuration options. Defaults to the ``"analogue"`` preset.
+        preset: Named preset. Defaults to ``"analogue"`` when neither *config*
+            nor *preset* is given. Mutually exclusive with *config*.
+
+    Returns:
+        ConformerEnsemble with terminal-group conformational diversity while
+        preserving the input core geometry.
+
+    Raises:
+        ValueError: If mol has no conformers, if both *config* and *preset* are
+            supplied, or if the method is unknown.
+
+    Examples:
+        >>> from rdkit import Chem
+        >>> from openconf import generate_conformers_from_pose
+        >>> mol = Chem.MolFromSmiles("CCCc1ccccc1")
+        >>> # (assume mol already has an aligned conformer)
+        >>> ensemble = generate_conformers_from_pose(  # doctest: +SKIP
+        ...     mol, constrained_atoms=[4, 5, 6, 7, 8, 9]
+        ... )
+    """
+    if config is not None and preset is not None:
+        raise ValueError("Specify at most one of 'config' or 'preset', not both.")
+
+    if mol.GetNumConformers() == 0:
+        raise ValueError(
+            "mol must have at least one conformer for pose-constrained generation. "
+            "Supply the MCS-aligned pose as conformer 0."
+        )
+
+    # Resolve config — default to "analogue" preset for this entry point.
+    if config is not None:
+        resolved_config = ConformerConfig(**{k: v for k, v in config.__dict__.items() if k != "constraint_spec"})
+    elif preset is not None:
+        resolved_config = preset_config(preset)
+    else:
+        resolved_config = preset_config("analogue")
+
+    # Attach the constraint spec (overrides any constraint_spec already in config).
+    resolved_config.constraint_spec = ConstraintSpec(constrained_atoms=frozenset(constrained_atoms))
+
+    # Prepare molecule — AddHs is a no-op if Hs are already present.
+    prepped_mol = prepare_molecule(mol, add_hs=True)
+
+    rotor_model = build_rotor_model(prepped_mol)
+
+    prepped_mol, conf_ids, energies = run_hybrid_generation(prepped_mol, rotor_model, resolved_config)
+
+    records = [
+        ConformerRecord(
+            conf_id=cid,
+            energy_kcal=energy,
+            source="analogue",
+        )
+        for cid, energy in zip(conf_ids, energies, strict=True)
+    ]
+
+    return ConformerEnsemble(mol=prepped_mol, records=records)
 
 
 def generate_conformers_from_smiles(

@@ -3,7 +3,29 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-ConformerPreset = Literal["rapid", "ensemble", "spectroscopic", "docking"]
+ConformerPreset = Literal["rapid", "ensemble", "spectroscopic", "docking", "analogue"]
+
+
+@dataclass
+class ConstraintSpec:
+    """Specification for positional constraints during conformer generation.
+
+    Used for FEP-style analogue generation where an MCS-aligned pose is provided
+    and a subset of atoms (the core scaffold) must remain fixed while terminal
+    groups are explored.
+
+    Attributes:
+        constrained_atoms: Atom indices that must not move. These are indices
+            into the molecule after hydrogen addition — since ``Chem.AddHs``
+            preserves all existing atom indices, you can pass indices from either
+            the heavy-atom mol or the H-added mol interchangeably.
+        position_force_constant: MMFF force constant (kcal/mol/Å²) for the
+            harmonic position restraints applied to constrained atoms.
+            The default (1000.0) is very stiff and effectively freezes the core.
+    """
+
+    constrained_atoms: frozenset[int]
+    position_force_constant: float = 1000.0
 
 
 @dataclass
@@ -89,6 +111,13 @@ class ConformerConfig:
             refinement pass. Lower than fast_dielectric (default 4.0) to give
             more physically meaningful energies representative of a condensed-phase
             environment (protein interior / organic solvent).
+        constraint_spec: Optional positional constraints for FEP-style analogue
+            generation. When set, the specified atoms are pinned to their starting
+            coordinates via MMFF position restraints, ETKDG seeding is skipped
+            (the input conformer is used as the sole seed), global shake moves are
+            suppressed, and only rotors whose moving fragment is entirely outside
+            the constrained set are explored. Normally set via
+            ``generate_conformers_from_pose`` rather than directly.
     """
 
     max_out: int = 200
@@ -113,6 +142,7 @@ class ConformerConfig:
     random_seed: int | None = None
     num_threads: int = 0
     use_heavy_atoms_only: bool = True
+    constraint_spec: "ConstraintSpec | None" = None
     clash_threshold: float = 1.5
     fast_minimization_iters: int = 20
     max_minimization_iters: int = 200
@@ -147,9 +177,14 @@ def preset_config(preset: ConformerPreset) -> "ConformerConfig":
       workflows. Wide energy window, uniform parent sampling, no final
       refinement (docking programs minimize in-situ).
 
+    - ``"analogue"`` — FEP-style analogue / R-group enumeration. Intended for
+      use with ``generate_conformers_from_pose``, which supplies the
+      ``constraint_spec`` automatically. 50 conformers, full refinement,
+      softmax parent strategy to stay near the constrained energy basin.
+
     Args:
         preset: One of ``"rapid"``, ``"ensemble"``, ``"spectroscopic"``,
-            ``"docking"``.
+            ``"docking"``, ``"analogue"``.
 
     Returns:
         ConformerConfig configured for the requested use case.
@@ -219,7 +254,21 @@ def preset_config(preset: ConformerPreset) -> "ConformerConfig":
                 final_select="diverse",
                 prism_config=PrismConfig(energy_window_kcal=18.0),
             )
+        case "analogue":
+            return ConformerConfig(
+                max_out=50,
+                pool_max=500,
+                n_steps=150,
+                energy_window_kcal=10.0,
+                seed_n_per_rotor=1,
+                seed_prune_rms_thresh=1.0,
+                do_final_refine=True,
+                minimize_batch_size=8,
+                parent_strategy="softmax",
+                final_select="diverse",
+                prism_config=PrismConfig(energy_window_kcal=10.0),
+            )
         case _:
             raise ValueError(
-                f"Unknown preset {preset!r}. Choose from: 'rapid', 'ensemble', 'spectroscopic', 'docking'."
+                f"Unknown preset {preset!r}. Choose from: 'rapid', 'ensemble', 'spectroscopic', 'docking', 'analogue'."
             )
