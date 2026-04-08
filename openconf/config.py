@@ -118,10 +118,14 @@ class ConformerConfig:
             suppressed, and only rotors whose moving fragment is entirely outside
             the constrained set are explored. Normally set via
             ``generate_conformers_from_pose`` rather than directly.
+        pool_max: Maximum pool size during generation. If None (default), computed
+            automatically as ``min(n_steps * 5, 2500)``.
+        prism_config: Configuration for PRISM deduplication. If None (default),
+            ``energy_window_kcal`` is mirrored from the top-level setting.
     """
 
     max_out: int = 200
-    pool_max: int = 2000
+    pool_max: int | None = None
     n_seeds: int | None = None
     n_steps: int = 500
     energy_window_kcal: float = 12.0
@@ -138,7 +142,7 @@ class ConformerConfig:
     )
     torsion_jitter_deg: float = 10.0
     minimizer: Literal["rdkit_mmff", "openmm"] = "rdkit_mmff"
-    prism_config: PrismConfig = field(default_factory=PrismConfig)
+    prism_config: PrismConfig | None = None
     random_seed: int | None = None
     num_threads: int = 0
     use_heavy_atoms_only: bool = True
@@ -155,6 +159,12 @@ class ConformerConfig:
     minimize_batch_size: int = 8
     fast_dielectric: float = 10.0
     final_dielectric: float = 4.0
+
+    def __post_init__(self) -> None:
+        if self.pool_max is None:
+            self.pool_max = min(self.n_steps * 5, 2500)
+        if self.prism_config is None:
+            self.prism_config = PrismConfig(energy_window_kcal=self.energy_window_kcal)
 
 
 def preset_config(preset: ConformerPreset) -> "ConformerConfig":
@@ -243,7 +253,6 @@ def preset_config(preset: ConformerPreset) -> "ConformerConfig":
         case "docking":
             return ConformerConfig(
                 max_out=250,
-                pool_max=2500,
                 n_steps=500,
                 energy_window_kcal=18.0,
                 seed_n_per_rotor=4,
@@ -252,7 +261,6 @@ def preset_config(preset: ConformerPreset) -> "ConformerConfig":
                 minimize_batch_size=8,
                 parent_strategy="uniform",
                 final_select="diverse",
-                prism_config=PrismConfig(energy_window_kcal=18.0),
             )
         case "analogue":
             return ConformerConfig(
@@ -266,7 +274,6 @@ def preset_config(preset: ConformerPreset) -> "ConformerConfig":
                 minimize_batch_size=8,
                 parent_strategy="softmax",
                 final_select="diverse",
-                prism_config=PrismConfig(energy_window_kcal=10.0),
             )
         case _:
             raise ValueError(
