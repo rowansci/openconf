@@ -186,6 +186,7 @@ class ConformerPool:
             return False
 
         # Check pool size limit
+        assert self.config.pool_max is not None
         if self.size >= self.config.pool_max:
             # Refresh cached worst if stale (O(N) scan, amortised rare).
             if self._worst_dirty or self._worst_id is None:
@@ -239,6 +240,7 @@ class ConformerPool:
         conf_ids = self.conf_ids
 
         # Run PRISM dedupe
+        assert self.config.prism_config is not None
         keep_ids = prism_dedupe(
             self.mol,
             conf_ids,
