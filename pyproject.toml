@@ -1,7 +1,7 @@
 [project]
 name = "openconf"
 description = "Conformer generation for drug-like molecules"
-version = "0.0.4"
+version = "0.0.5"
 readme = "README.md"
 license = "MIT"
 authors = [{name = "Corin Wagen"}]
