@@ -166,25 +166,58 @@ def test_config_and_preset_both_raises():
 
 
 def test_filter_constrained_rotors_eliminates_double_sided():
-    """A rotor whose both fragments contain constrained atoms is excluded.
+    """A rotor whose distal fragments on both sides contain constrained heavy atoms is excluded.
 
-    In butane (CCCC) with heavy atoms {1, 2} constrained, the central C1–C2
-    bond has constrained atoms on both sides and must be eliminated.
-    The terminal bonds C0–C1 and C2–C3 each have one free side and are kept.
+    Biphenyl with all 12 carbons constrained: the single biaryl C–C bond has
+    constrained ring carbons beyond the axis atom on both sides, so it cannot
+    be rotated without displacing a constrained atom and must be eliminated.
     """
     from openconf import build_rotor_model, filter_constrained_rotors, prepare_molecule
 
-    mol = prepare_molecule(Chem.MolFromSmiles("CCCC"))
+    mol = prepare_molecule(Chem.MolFromSmiles("c1ccccc1-c1ccccc1"))
     rm = build_rotor_model(mol)
-    full_count = rm.n_rotatable  # 3 bonds: C0-C1, C1-C2, C2-C3
+    full_count = rm.n_rotatable  # 1 bond: the biaryl C–C
 
-    # Constrain the two middle carbons; the central bond has constrained atoms
-    # on both sides and should be removed.
-    constrained = frozenset([1, 2])
-    filtered = filter_constrained_rotors(rm, constrained)
+    # Constrain every carbon; the biaryl bond has constrained distal heavy
+    # atoms on both sides and should be removed.
+    all_carbons = frozenset(i for i, a in enumerate(mol.GetAtoms()) if a.GetAtomicNum() == 6)
+    filtered = filter_constrained_rotors(rm, all_carbons)
 
     assert filtered.n_rotatable < full_count
-    assert filtered.n_rotatable > 0  # terminal bonds should remain
+    assert filtered.n_rotatable == 0
+
+
+def test_filter_constrained_rotors_boundary_attachment_kept():
+    """Scaffold-edge bond is kept when both axis atoms are constrained but distal side is free.
+
+    Butylbenzene with the benzene ring AND the adjacent chain carbon (C3, index 3)
+    all constrained: the C3–ring bond has two constrained axis atoms, but the free
+    butyl chain (C0–C2) lies entirely beyond C3. The boundary-attachment rule keeps
+    the bond so the chain can still be explored.
+    """
+    from openconf import build_rotor_model, filter_constrained_rotors, prepare_molecule
+    from openconf.perceive import _atoms_on_side
+
+    mol = prepare_molecule(Chem.MolFromSmiles("CCCCc1ccccc1"))
+    rm = build_rotor_model(mol)
+
+    # Ring atoms (4–9) plus the first chain carbon attached to the ring (3).
+    # Both atoms of the ring–chain bond are now constrained.
+    constrained = frozenset([3, 4, 5, 6, 7, 8, 9])
+    filtered = filter_constrained_rotors(rm, constrained)
+
+    # The C3–ring bond must survive: free chain atoms are the distal fragment.
+    assert filtered.n_rotatable > 0
+
+    # Every surviving rotor's distal moving fragment must be constraint-free.
+    for rotor in filtered.rotors:
+        atom_i, atom_j = rotor.atom_idxs
+        moving = _atoms_on_side(mol, atom_j, atom_i)
+        distal = moving - {atom_j}
+        assert not constrained & distal, (
+            f"Rotor {rotor.atom_idxs} has constrained atoms in distal fragment: "
+            f"{constrained & distal}"
+        )
 
 
 def test_filter_constrained_rotors_free_side_reoriented():
@@ -205,12 +238,15 @@ def test_filter_constrained_rotors_free_side_reoriented():
     # All 4 chain rotors should be preserved (just possibly reoriented).
     assert filtered.n_rotatable == rm.n_rotatable
 
-    # For every remaining rotor the moving fragment must be entirely free.
+    # For every remaining rotor the distal moving fragment must be entirely free.
+    # atom_j sits on the rotation axis and never physically translates, so it is
+    # excluded from the check — only the atoms beyond it (distal) must be free.
     for rotor in filtered.rotors:
         atom_i, atom_j = rotor.atom_idxs
         moving = _atoms_on_side(mol, atom_j, atom_i)
-        assert not constrained & moving, (
-            f"Rotor {rotor.atom_idxs} has constrained atoms in moving fragment: {constrained & moving}"
+        distal = moving - {atom_j}
+        assert not constrained & distal, (
+            f"Rotor {rotor.atom_idxs} has constrained atoms in distal fragment: {constrained & distal}"
         )
 
 

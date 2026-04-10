@@ -6,6 +6,7 @@ from typing import Any
 from rdkit import Chem
 
 
+
 @dataclass
 class Rotor:
     """Represents a rotatable bond.
@@ -353,13 +354,19 @@ def _atoms_on_side(mol: Chem.Mol, start_atom: int, excluded_atom: int) -> frozen
 
 
 def filter_constrained_rotors(rotor_model: "RotorModel", constrained_atoms: frozenset[int]) -> "RotorModel":
-    """Return a new RotorModel containing only rotors that move no constrained atoms.
+    """Return a new RotorModel containing only rotors whose moving fragment is constraint-free.
 
-    A rotor around bond (i, j) is included if the fragment on one side of the
-    bond contains no constrained atoms (meaning we can rotate that fragment
-    freely). When the free fragment happens to be on the i-side rather than the
-    j-side as stored in dihedral_atoms, the rotor is flipped so the moving
-    fragment is always the free one.
+    A rotor around bond (i, j) is kept when the *distal* atoms on one side —
+    those beyond the bond-axis atom that actually translate during
+    ``SetDihedralDeg`` — contain no constrained atoms.  The bond-axis atoms
+    (atom_i and atom_j) lie on the rotation axis and never physically move, so
+    they are excluded from the movability check.  This allows boundary-attachment
+    bonds at the edge of a pinned scaffold to be kept even when both bond atoms
+    are in the constrained set, provided the substituent beyond the axis atom is
+    entirely free.
+
+    When the free distal fragment is on the i-side rather than the j-side, the
+    rotor is flipped so the moving fragment is always the free one.
 
     Ring flips are kept only when the entire ring is free of constrained atoms.
 
@@ -376,14 +383,16 @@ def filter_constrained_rotors(rotor_model: "RotorModel", constrained_atoms: froz
     for rotor in rotor_model.rotors:
         atom_i, atom_j = rotor.atom_idxs
         moving_j = _atoms_on_side(mol, atom_j, atom_i)
+        distal_j = moving_j - {atom_j}
 
-        if not constrained_atoms & moving_j:
-            # j-side is free — use rotor as-is (SetDihedralDeg moves j-side)
+        if not constrained_atoms & distal_j:
+            # j-side distal atoms are free — use rotor as-is
             free_rotors.append(rotor)
         else:
             moving_i = _atoms_on_side(mol, atom_i, atom_j)
-            if not constrained_atoms & moving_i:
-                # i-side is free — flip so the free side is the moving side
+            distal_i = moving_i - {atom_i}
+            if not constrained_atoms & distal_i:
+                # i-side distal atoms are free — flip so the free side is the moving side
                 a, i, j, b = rotor.dihedral_atoms
                 free_rotors.append(
                     Rotor(
@@ -393,7 +402,7 @@ def filter_constrained_rotors(rotor_model: "RotorModel", constrained_atoms: froz
                         rotor_type=rotor.rotor_type,
                     )
                 )
-            # else: constrained atoms on both sides — exclude this rotor
+            # else: constrained atoms in distal fragments on both sides — exclude this rotor
 
     # Ring flips: keep only rings with no constrained atoms
     free_ring_flips = [rf for rf in rotor_model.ring_flips if not constrained_atoms & frozenset(rf.ring_atoms)]
