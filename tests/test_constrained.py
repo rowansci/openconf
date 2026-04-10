@@ -176,7 +176,7 @@ def test_filter_constrained_rotors_eliminates_double_sided():
 
     mol = prepare_molecule(Chem.MolFromSmiles("c1ccccc1-c1ccccc1"))
     rm = build_rotor_model(mol)
-    full_count = rm.n_rotatable  # 1 bond: the biaryl C–C
+    full_count = rm.n_rotatable  # 1 bond: the biaryl C-C
 
     # Constrain every carbon; the biaryl bond has constrained distal heavy
     # atoms on both sides and should be removed.
@@ -191,7 +191,7 @@ def test_filter_constrained_rotors_boundary_attachment_kept():
     """Scaffold-edge bond is kept when both axis atoms are constrained but distal side is free.
 
     Butylbenzene with the benzene ring AND the adjacent chain carbon (C3, index 3)
-    all constrained: the C3–ring bond has two constrained axis atoms, but the free
+    all constrained: the C3-ring bond has two constrained axis atoms, but the free
     butyl chain (C0–C2) lies entirely beyond C3. The boundary-attachment rule keeps
     the bond so the chain can still be explored.
     """
@@ -201,12 +201,12 @@ def test_filter_constrained_rotors_boundary_attachment_kept():
     mol = prepare_molecule(Chem.MolFromSmiles("CCCCc1ccccc1"))
     rm = build_rotor_model(mol)
 
-    # Ring atoms (4–9) plus the first chain carbon attached to the ring (3).
-    # Both atoms of the ring–chain bond are now constrained.
+    # Ring atoms (4-9) plus the first chain carbon attached to the ring (3).
+    # Both atoms of the ring-chain bond are now constrained.
     constrained = frozenset([3, 4, 5, 6, 7, 8, 9])
     filtered = filter_constrained_rotors(rm, constrained)
 
-    # The C3–ring bond must survive: free chain atoms are the distal fragment.
+    # The C3-ring bond must survive: free chain atoms are the distal fragment.
     assert filtered.n_rotatable > 0
 
     # Every surviving rotor's distal moving fragment must be constraint-free.
