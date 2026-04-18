@@ -245,6 +245,7 @@ class ConformerPool:
             self.mol,
             conf_ids,
             self.config.prism_config,
+            use_heavy_atoms_only=self.config.use_heavy_atoms_only,
         )
 
         # Remove duplicates
@@ -319,8 +320,7 @@ class ConformerPool:
         energies_array = np.array(energies)
         # Shift to avoid numerical issues
         shifted = energies_array - np.min(energies_array)
-        # Temperature controls exploration/exploitation
-        temperature = 2.0  # kcal/mol
+        temperature = self.config.parent_softmax_temperature_kcal
         weights = np.exp(-shifted / temperature)
         weights /= weights.sum()
 

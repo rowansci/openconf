@@ -2,12 +2,16 @@
 
 from dataclasses import dataclass
 
+import numpy as np
 from rdkit import Chem
 
 from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_config
 from .perceive import build_rotor_model, prepare_molecule
 from .pool import ConformerRecord
 from .propose.hybrid import run_hybrid_generation
+
+# Gas constant in kcal/(mol·K); kT at 298.15 K ≈ 0.5924 kcal/mol.
+_R_KCAL_PER_MOL_K = 1.987204e-3
 
 
 @dataclass
@@ -104,6 +108,124 @@ class ConformerEnsemble:
             energies=self.energies,
         )
 
+    def boltzmann_weights(self, temperature: float = 298.15) -> np.ndarray:
+        """Normalized Boltzmann weights from the ensemble energies.
+
+        Weights are ``exp(-(E - Emin) / RT)`` normalized to sum to 1. Conformers
+        with missing energies are assigned weight 0.
+
+        Args:
+            temperature: Temperature in Kelvin. Default 298.15 K (25 °C).
+
+        Returns:
+            Array of shape ``(n_conformers,)`` summing to 1.
+
+        Raises:
+            ValueError: If the ensemble has no conformers with finite energies.
+        """
+        energies = np.array(
+            [r.energy_kcal if r.energy_kcal is not None else np.inf for r in self.records],
+            dtype=float,
+        )
+        finite = np.isfinite(energies)
+        if not finite.any():
+            raise ValueError("Cannot compute Boltzmann weights: no conformer has a finite energy.")
+
+        shifted = energies - energies[finite].min()
+        weights = np.zeros_like(energies)
+        weights[finite] = np.exp(-shifted[finite] / (_R_KCAL_PER_MOL_K * temperature))
+        weights /= weights.sum()
+        return weights
+
+    def rmsd_to(self, ref_idx: int = 0, heavy_only: bool = True) -> list[float]:
+        """Symmetry-corrected RMSDs of every conformer to a reference.
+
+        Uses :func:`rdkit.Chem.rdMolAlign.GetBestRMS`, which searches over
+        graph automorphisms and optimally superimposes each pair before
+        measuring RMSD. The ensemble's own conformer coordinates are not
+        modified.
+
+        Args:
+            ref_idx: Index into ``records`` of the reference conformer.
+            heavy_only: If True (default), compute RMSD using heavy atoms only.
+
+        Returns:
+            List of RMSDs in Å, one per record, in the order of ``records``.
+            The reference entry is 0.0.
+        """
+        from rdkit.Chem import rdMolAlign
+
+        if not 0 <= ref_idx < self.n_conformers:
+            raise IndexError(f"ref_idx {ref_idx} out of range for ensemble of size {self.n_conformers}")
+
+        # GetBestRMS aligns prbMol in place — work on a copy to keep the
+        # ensemble's stored coordinates unchanged.
+        mol_copy = Chem.Mol(self.mol)
+
+        atom_map = None
+        if heavy_only:
+            heavy = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetAtomicNum() > 1]
+            atom_map = [list(zip(heavy, heavy, strict=True))]
+
+        ref_id = self.records[ref_idx].conf_id
+        rmsds: list[float] = []
+        for i, record in enumerate(self.records):
+            if i == ref_idx:
+                rmsds.append(0.0)
+                continue
+            rmsd = rdMolAlign.GetBestRMS(
+                mol_copy,
+                mol_copy,
+                prbId=record.conf_id,
+                refId=ref_id,
+                map=atom_map,
+            )
+            rmsds.append(rmsd)
+        return rmsds
+
+    def pairwise_rmsd(self, heavy_only: bool = True) -> np.ndarray:
+        """Symmetric pairwise RMSD matrix for all conformers.
+
+        Uses :func:`rdkit.Chem.rdMolAlign.GetBestRMS` with optimal superposition
+        per pair. Cost is O(N² · automorphisms); expensive for large ensembles
+        of highly symmetric molecules. The ensemble's stored coordinates are
+        not modified.
+
+        Args:
+            heavy_only: If True (default), use heavy atoms only.
+
+        Returns:
+            Array of shape ``(n_conformers, n_conformers)`` with zeros on the
+            diagonal. Symmetric by construction.
+        """
+        from rdkit.Chem import rdMolAlign
+
+        n = self.n_conformers
+        matrix = np.zeros((n, n), dtype=float)
+        if n <= 1:
+            return matrix
+
+        mol_copy = Chem.Mol(self.mol)
+
+        atom_map = None
+        if heavy_only:
+            heavy = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetAtomicNum() > 1]
+            atom_map = [list(zip(heavy, heavy, strict=True))]
+
+        conf_ids = [r.conf_id for r in self.records]
+        for i in range(n):
+            for j in range(i + 1, n):
+                rmsd = rdMolAlign.GetBestRMS(
+                    mol_copy,
+                    mol_copy,
+                    prbId=conf_ids[j],
+                    refId=conf_ids[i],
+                    map=atom_map,
+                )
+                matrix[i, j] = rmsd
+                matrix[j, i] = rmsd
+        return matrix
+
     def summary(self) -> str:
         """Get a summary of the ensemble."""
         from .io import get_conformer_summary
@@ -113,6 +235,65 @@ class ConformerEnsemble:
             self.conf_ids,
             self.energies,
         )
+
+    @classmethod
+    def from_sdf(cls, input_path: str) -> "ConformerEnsemble":
+        """Read an ensemble from an SDF file, preserving metadata.
+
+        Round-trip inverse of :meth:`to_sdf`. Recovers per-conformer
+        ``energy_kcal`` (from the ``Energy_kcal`` property), ``source`` (from
+        the ``source`` property), and any additional tags written by
+        :meth:`to_sdf`. The ``_Name`` and ``ConfID`` bookkeeping properties
+        produced by the writer are ignored.
+
+        Args:
+            input_path: Path to an SDF file.
+
+        Returns:
+            ConformerEnsemble with one record per conformer in the file.
+        """
+        supplier = Chem.SDMolSupplier(str(input_path), removeHs=False)
+
+        _RESERVED = {"_Name", "ConfID", "Energy_kcal"}
+
+        mol: Chem.Mol | None = None
+        records: list[ConformerRecord] = []
+
+        for mol_i in supplier:
+            if mol_i is None:
+                continue
+
+            if mol is None:
+                mol = mol_i
+                conf_id = mol.GetConformer().GetId()
+            else:
+                conf = mol_i.GetConformer()
+                conf_id = mol.AddConformer(conf, assignId=True)
+
+            energy: float | None = None
+            if mol_i.HasProp("Energy_kcal"):
+                try:
+                    energy = float(mol_i.GetProp("Energy_kcal"))
+                except ValueError:
+                    energy = None
+
+            source = mol_i.GetProp("source") if mol_i.HasProp("source") else "unknown"
+
+            tags = {k: mol_i.GetProp(k) for k in mol_i.GetPropNames() if k not in _RESERVED and k != "source"}
+
+            records.append(
+                ConformerRecord(
+                    conf_id=conf_id,
+                    energy_kcal=energy,
+                    source=source,
+                    tags=tags,
+                )
+            )
+
+        if mol is None:
+            raise ValueError(f"No valid molecules in {input_path}")
+
+        return cls(mol=mol, records=records)
 
 
 def generate_conformers(

@@ -77,19 +77,6 @@ config = ConformerConfig(
 ensemble = generate_conformers(mol, config=config)
 ```
 
-### Command Line
-
-```bash
-# From SMILES file
-openconf molecules.smi --max-out 200 --out conformers.sdf
-
-# From SDF file
-openconf input.sdf --method hybrid --ew 15 --out output.sdf
-
-# With verbose output
-openconf "CCCCc1ccccc1" --max-out 100 -o butylbenzene.sdf -v
-```
-
 ## Use-Case Examples
 
 The right configuration depends on the downstream task. Four named presets
@@ -224,16 +211,12 @@ relative MMFF energies for Boltzmann-weighted spectral averaging.
 - `do_final_refine=True` — accurate relative energies are critical here
 
 ```python
-import numpy as np
 from openconf import generate_conformers
 
 ensemble = generate_conformers("CC(C)Cc1ccc(cc1)C(C)C(=O)O", preset="spectroscopic")
 
-# Boltzmann weights at 300 K
-RT = 0.592  # kcal/mol at 300 K
-energies = np.array(ensemble.energies)
-weights = np.exp(-(energies - energies.min()) / RT)
-weights /= weights.sum()
+# Boltzmann weights at 298.15 K (override via ``temperature``, in Kelvin)
+weights = ensemble.boltzmann_weights()
 ```
 
 <details><summary>Full config equivalent</summary>

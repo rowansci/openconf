@@ -131,7 +131,7 @@ def get_minimizer(name: str = "rdkit_mmff", **kwargs) -> Minimizer:
     """Get a minimizer by name.
 
     Args:
-        name: Minimizer name ("rdkit_mmff" or future).
+        name: Minimizer name. Only ``"rdkit_mmff"`` is currently supported.
         **kwargs: Additional arguments for the minimizer.
 
     Returns:

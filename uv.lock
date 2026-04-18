@@ -269,7 +269,7 @@ wheels = [
 
 [[package]]
 name = "openconf"
-version = "0.0.3"
+version = "0.0.5"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
@@ -290,7 +290,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "numpy" },
-    { name = "prism-pruner" },
+    { name = "prism-pruner", specifier = ">=0.0.3" },
     { name = "rdkit" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
 ]

@@ -58,16 +58,9 @@ ensemble = generate_conformers(mol, preset="docking")       # maximize bioactive
 ```
 
 Each preset is a fully specified `ConformerConfig`; you can inspect and override individual
-fields via `preset_config("docking")`. The parameters below explain the trade-offs.
-
-### Quick Reference
-
-| Use Case | max_out | n_seeds | n_steps | pool_max | energy_window_kcal |
-|----------|---------|---------|---------|----------|-------------------|
-| Fast docking prep | 50-100 | auto | 100 | 200 | 10 |
-| Thorough docking | 200-500 | auto | 500 | 1000 | 12 |
-| Ensemble properties (NMR, etc.) | 100-300 | auto | 500 | 1000 | 15 |
-| Exhaustive search | 500+ | 200+ | 2000 | 5000 | 20 |
+fields via `preset_config("docking")`. See the preset comparison table in
+[README.md](README.md#configuration-quick-reference) for per-preset values. The parameters
+below explain the trade-offs.
 
 ### Parameter Details
 
@@ -83,49 +76,38 @@ fields via `preset_config("docking")`. The parameters below explain the trade-of
 
 ### Use Case Examples
 
-Docking preparation: use moderate settings and prioritize diversity. The docking program handles fine-grained optimization. The `"docking"` preset's choices (`uniform` parent strategy, wide energy window, no final refinement) were informed by the [Iridium benchmark](docs/benchmark_report.md), which evaluates bioactive conformer recovery across 120 drug-like molecules.
+The four built-in presets cover the most common workflows. Start from one and override individual fields only when needed.
 
 ```python
-config = ConformerConfig(
-    max_out=200,
-    n_steps=500,
-    pool_max=1000,
-    energy_window_kcal=12.0,
-)
+from openconf import generate_conformers, preset_config
+
+# Docking pose recovery (uniform parent sampling, wide energy window, no final refine).
+# Defaults: max_out=250, n_steps=500, energy_window_kcal=18.0. Informed by the
+# Iridium benchmark (see docs/benchmark_report.md).
+ensemble = generate_conformers(mol, preset="docking")
+
+# Boltzmann-weighted properties (NMR, IR, VCD, optical rotation).
+# Defaults: max_out=100, n_steps=400, energy_window_kcal=5.0, final_select="energy".
+# The tight 5 kcal window already covers >99% of the Boltzmann population at 300 K.
+ensemble = generate_conformers(mol, preset="spectroscopic")
+
+# Balanced ensemble for ML / physics-based property prediction.
+# Defaults: max_out=50, n_steps=200, energy_window_kcal=10.0.
+ensemble = generate_conformers(mol, preset="ensemble")
+
+# Large-scale virtual screening — 5 diverse conformers per molecule, ~45 ms each.
+# Defaults: max_out=5, n_steps=30, do_final_refine=False.
+ensemble = generate_conformers(mol, preset="rapid")
 ```
 
-Pharmacophore searching / shape screening: similar to docking, but a wider energy window is useful since you are matching against a static query.
+Pharmacophore searching / shape screening has no matching preset — the goal is more conformers at a wider energy window than `"docking"`. Starting from `"docking"` and widening is usually the right move:
 
 ```python
-config = ConformerConfig(
-    max_out=500,
-    n_steps=1000,
-    pool_max=2000,
-    energy_window_kcal=15.0,
-)
-```
-
-Boltzmann-weighted properties (NMR chemical shifts, J-couplings, optical rotation): accurate coverage of the low-energy region is important since properties are averaged according to Boltzmann populations.
-
-```python
-config = ConformerConfig(
-    max_out=300,
-    n_steps=1000,
-    pool_max=2000,
-    energy_window_kcal=15.0,  # ~6 kcal/mol is 99.99% of Boltzmann population at 298 K
-)
-```
-
-Large-scale screening (thousands of molecules): speed matters more than exhaustiveness.
-
-```python
-config = ConformerConfig(
-    max_out=50,
-    n_seeds=20,   # override auto to keep it fast
-    n_steps=100,
-    pool_max=200,
-    energy_window_kcal=10.0,
-)
+config = preset_config("docking")
+config.max_out = 500
+config.n_steps = 1000
+config.energy_window_kcal = 20.0
+ensemble = generate_conformers(mol, config=config)
 ```
 
 Macrocycles (ring size ≥ 12): openconf is not recommended for macrocyclic ring systems. ETKDGv3 has dedicated macrocycle distance-geometry bounds that openconf does not replicate, and in practice ETKDG+MMFF94s outperforms openconf on both RMSD and ensemble coverage metrics for large rings. For very flexible acyclic molecules (>10 rotatable bonds), increasing `n_steps` and `pool_max` helps ensure thorough exploration.

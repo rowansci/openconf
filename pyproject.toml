@@ -11,7 +11,7 @@ dependencies = [
     "numpy",
     "rdkit",
     "scikit-learn>=1.8.0",
-    "prism-pruner",
+    "prism-pruner>=0.0.3",
 ]
 
 [dependency-groups]
@@ -72,7 +72,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]
-"openconf/cluster.py" = ["D100", "D401", "F821"]
 "scripts/**" = ["D100", "D101", "D102", "D103", "D401", "E501", "E741", "B905", "PLC0206"]
 
 [tool.ruff.lint.pydocstyle]

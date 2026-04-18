@@ -90,6 +90,11 @@ def write_xyz(
 def read_sdf(input_path: str | Path) -> tuple[Chem.Mol, list[int], list[float]]:
     """Read conformers from an SDF file.
 
+    This is the low-level reader and returns only coordinates + energies. Per-
+    conformer metadata (``source``, custom tags) written by
+    :meth:`ConformerEnsemble.to_sdf` is discarded. Use
+    :meth:`ConformerEnsemble.from_sdf` if you need to round-trip metadata.
+
     Args:
         input_path: Input file path.
 

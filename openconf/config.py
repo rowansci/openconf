@@ -57,7 +57,7 @@ class ConformerConfig:
         shake_period: Apply global shake every N steps.
         move_probs: Probabilities for each move type.
         torsion_jitter_deg: Random jitter to add to torsion angles (degrees).
-        minimizer: Which minimizer to use ("rdkit_mmff" or "openmm").
+        minimizer: Which minimizer to use. Only ``"rdkit_mmff"`` is supported.
         prism_config: Configuration for PRISM deduplication.
         random_seed: Random seed for reproducibility.
         num_threads: Number of threads for parallel operations.
@@ -80,6 +80,11 @@ class ConformerConfig:
             - "best": Always mutate the current lowest-energy conformer. Fast convergence
               but most prone to mode collapse; generally not recommended when diversity
               is important.
+        parent_softmax_temperature_kcal: Temperature (kcal/mol) for the softmax
+            parent-selection weights when ``parent_strategy == "softmax"``. Larger
+            values flatten the distribution (more exploration); smaller values
+            concentrate sampling on the lowest-energy pool members. Default 2.0
+            matches typical MCMM practice and is unrelated to physical temperature.
         final_select: How the final conformer set is chosen.
         skip_clash_check: If True, skip the pre-minimization clash check entirely.
             If False (default), use a fast numpy-based clash filter that avoids
@@ -141,7 +146,7 @@ class ConformerConfig:
         }
     )
     torsion_jitter_deg: float = 10.0
-    minimizer: Literal["rdkit_mmff", "openmm"] = "rdkit_mmff"
+    minimizer: Literal["rdkit_mmff"] = "rdkit_mmff"
     prism_config: PrismConfig | None = None
     random_seed: int | None = None
     num_threads: int = 0
@@ -152,6 +157,7 @@ class ConformerConfig:
     max_minimization_iters: int = 200
     do_final_refine: bool = True
     parent_strategy: Literal["softmax", "uniform", "best"] = "softmax"
+    parent_softmax_temperature_kcal: float = 2.0
     final_select: Literal["energy", "diverse"] = "diverse"
     skip_clash_check: bool = False
     seed_n_per_rotor: int = 3

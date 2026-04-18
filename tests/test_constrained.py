@@ -215,8 +215,7 @@ def test_filter_constrained_rotors_boundary_attachment_kept():
         moving = _atoms_on_side(mol, atom_j, atom_i)
         distal = moving - {atom_j}
         assert not constrained & distal, (
-            f"Rotor {rotor.atom_idxs} has constrained atoms in distal fragment: "
-            f"{constrained & distal}"
+            f"Rotor {rotor.atom_idxs} has constrained atoms in distal fragment: {constrained & distal}"
         )
 
 

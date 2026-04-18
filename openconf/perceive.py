@@ -6,7 +6,6 @@ from typing import Any
 from rdkit import Chem
 
 
-
 @dataclass
 class Rotor:
     """Represents a rotatable bond.

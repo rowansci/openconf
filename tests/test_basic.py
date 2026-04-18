@@ -135,6 +135,89 @@ def test_sdf_io(tmp_path):
     assert count == ensemble.n_conformers
 
 
+def test_sdf_roundtrip_preserves_metadata(tmp_path):
+    """ConformerEnsemble.from_sdf recovers energies, source, and custom tags."""
+    from openconf import ConformerConfig, ConformerEnsemble, generate_conformers
+
+    config = ConformerConfig(max_out=3, n_seeds=3, n_steps=10, pool_max=20, random_seed=1)
+    ensemble = generate_conformers("CCCC", config=config)
+
+    # Attach a custom tag so we can verify round-trip fidelity.
+    for i, record in enumerate(ensemble.records):
+        record.tags["rank"] = str(i)
+
+    out = tmp_path / "rt.sdf"
+    ensemble.to_sdf(str(out))
+    loaded = ConformerEnsemble.from_sdf(str(out))
+
+    assert loaded.n_conformers == ensemble.n_conformers
+    for orig, back in zip(ensemble.records, loaded.records, strict=True):
+        assert abs((orig.energy_kcal or 0) - (back.energy_kcal or 0)) < 1e-3
+        assert back.source == orig.source
+        assert back.tags.get("rank") == orig.tags["rank"]
+
+
+def test_boltzmann_weights_sum_to_one():
+    """Boltzmann weights normalize to 1 and favor the lowest-energy conformer."""
+    import numpy as np
+
+    from openconf import ConformerConfig, generate_conformers
+
+    config = ConformerConfig(max_out=5, n_seeds=3, n_steps=20, pool_max=30, random_seed=7)
+    ensemble = generate_conformers("CCCCC", config=config)
+
+    weights = ensemble.boltzmann_weights()
+    assert weights.shape == (ensemble.n_conformers,)
+    assert abs(weights.sum() - 1.0) < 1e-9
+
+    # Lowest-energy conformer should have the largest weight.
+    min_idx = int(np.argmin(ensemble.energies))
+    assert int(np.argmax(weights)) == min_idx
+
+    # Higher temperature should flatten the distribution (max weight decreases).
+    hot = ensemble.boltzmann_weights(temperature=1000.0)
+    assert hot.max() <= weights.max() + 1e-9
+
+
+def test_rmsd_to_and_pairwise():
+    """rmsd_to and pairwise_rmsd are consistent and non-negative."""
+    from openconf import ConformerConfig, generate_conformers
+
+    config = ConformerConfig(max_out=4, n_seeds=3, n_steps=20, pool_max=30, random_seed=3)
+    ensemble = generate_conformers("CCCCc1ccccc1", config=config)
+
+    if ensemble.n_conformers < 2:
+        pytest.skip("Need at least 2 conformers for RMSD checks")
+
+    rmsds = ensemble.rmsd_to(ref_idx=0)
+    assert len(rmsds) == ensemble.n_conformers
+    assert rmsds[0] == 0.0
+    assert all(r >= 0.0 for r in rmsds)
+
+    matrix = ensemble.pairwise_rmsd()
+    n = ensemble.n_conformers
+    assert matrix.shape == (n, n)
+    # Symmetric, zero diagonal.
+    assert (matrix.diagonal() == 0).all()
+    assert ((matrix - matrix.T) == 0).all()
+    # Row 0 of the matrix should match rmsd_to(ref_idx=0).
+    for i, r in enumerate(rmsds):
+        assert abs(matrix[0, i] - r) < 1e-6
+
+
+def test_softmax_temperature_is_configurable():
+    """The parent softmax temperature is read from ConformerConfig."""
+    from openconf import ConformerConfig
+    from openconf.pool import ConformerPool
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
+    config = ConformerConfig(parent_softmax_temperature_kcal=0.25)
+    pool = ConformerPool(mol=mol, config=config)
+    # Field is plumbed through and defaults are preserved.
+    assert pool.config.parent_softmax_temperature_kcal == 0.25
+    assert ConformerConfig().parent_softmax_temperature_kcal == 2.0
+
+
 def test_xyz_io(tmp_path):
     """Test XYZ writing."""
     from openconf import ConformerConfig, generate_conformers
