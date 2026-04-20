@@ -20,8 +20,10 @@ def _compute_n_seeds(rotor_model: RotorModel, n_per_rotor: int = 3) -> int:
     """Compute an appropriate seed count based on molecular complexity.
 
     Formula: base of n_per_rotor seeds per rotatable bond (min 20), plus 5 seeds
-    per non-aromatic ring that can flip, plus 3 extra seeds per macrocycle atom
-    beyond 9 (to sample ring-closure diversity). Capped at 500.
+    per non-aromatic ring that can flip, plus ring_size × 10 seeds per macrocycle
+    (the low-energy pucker fraction drops rapidly with ring size, so dense
+    seeding is the cheapest way to ensure the global basin is found). Capped at
+    500.
 
     Args:
         rotor_model: Rotor model for the molecule.
@@ -32,9 +34,9 @@ def _compute_n_seeds(rotor_model: RotorModel, n_per_rotor: int = 3) -> int:
     """
     base = max(20, rotor_model.n_rotatable * n_per_rotor)
     ring_bonus = len(rotor_model.ring_flips) * 5
-    # Macrocycles need seeds proportional to ring size, not just the excess,
-    # because the full ring closure space scales with ring perimeter.
-    macro_bonus = sum(s * 3 for s in rotor_model.ring_info["ring_sizes"] if s >= 10)
+    # Low-energy pucker fraction drops super-linearly with ring size, so the
+    # seed budget scales with s**2; the 500-seed cap keeps the cost bounded.
+    macro_bonus = sum(s * s for s in rotor_model.ring_info["ring_sizes"] if s >= 10)
     return min(500, base + ring_bonus + macro_bonus)
 
 
@@ -192,6 +194,25 @@ class HybridProposer:
         self._nonbonded_mask: np.ndarray = _build_nonbonded_mask(mol)
         self._clash_threshold2: float = config.clash_threshold**2
 
+        # Precompute crankshaft data: for each non-aromatic ring of size >= 6,
+        # store the ordered ring atom indices and the substituent-atom subtree
+        # for each ring position (atoms that should rotate with that ring atom,
+        # excluding other same-ring atoms). Rings containing metals are skipped.
+        self._crankable_rings: list[tuple[tuple[int, ...], list[frozenset[int]]]] = []
+        atom_rings = rotor_model.ring_info.get("ring_atoms", [])
+        for ring in atom_rings:
+            if len(ring) < 6:
+                continue
+            if all(mol.GetAtomWithIdx(i).GetIsAromatic() for i in ring):
+                continue
+            from ..perceive import _is_metal
+
+            if any(_is_metal(mol.GetAtomWithIdx(i)) for i in ring):
+                continue
+            ring_set = frozenset(ring)
+            subtrees = [self._compute_substituent_atoms(mol, ring_set, i) for i in ring]
+            self._crankable_rings.append((tuple(ring), subtrees))
+
         # Staging mol for batch minimization: same topology, no conformers.
         # Candidates are isolated here to avoid minimizing pool members.
         self._staging_mol: Chem.RWMol = Chem.RWMol(mol)
@@ -213,6 +234,19 @@ class HybridProposer:
         if config.random_seed is not None:
             random.seed(config.random_seed)
             np.random.seed(config.random_seed)
+
+        # Adaptive move scheduling: base prior (from config) + empirical reward
+        # counters that get blended in periodically. Reward is post-dedupe
+        # survival: an accepted conformer is tagged with its producing move;
+        # at the next dedupe, conformers still in the pool count +1 reward for
+        # their move, pruned ones count as 0. This favors novelty over mere
+        # acceptance. When adaptive_moves is disabled, counters accumulate but
+        # are never read.
+        self._base_move_probs: dict[str, float] = dict(config.move_probs)
+        self._current_move_probs: dict[str, float] = dict(config.move_probs)
+        self._move_attempts: dict[str, float] = dict.fromkeys(config.move_probs, 0.0)
+        self._move_rewards: dict[str, float] = dict.fromkeys(config.move_probs, 0.0)
+        self._pending_tags: dict[int, str] = {}
 
     def generate_seeds(self, n_seeds: int) -> list[tuple[int, float]]:
         """Generate seed conformers using ETKDG, then fast-minimize in batch.
@@ -237,6 +271,11 @@ class HybridProposer:
         if ring_info.get("has_macrocycle"):
             params.useMacrocycleTorsions = True
             params.useBasicKnowledge = True
+            # Macrocycles have many low-RMSD-distinct puckers; the default
+            # 1.0 Å prune threshold collapses them before minimization. Disable
+            # seed pruning so the diversity ETKDG generates actually reaches
+            # the MMFF stage.
+            params.pruneRmsThresh = -1.0
 
         conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
         if not conf_ids:
@@ -468,6 +507,114 @@ class HybridProposer:
             new_angle = self._sample_angle(rotor_idx)
             _set_dihedral(self.mol, conf_id, rotor.dihedral_atoms, new_angle)
 
+    @staticmethod
+    def _compute_substituent_atoms(mol: Chem.Mol, ring_atoms: frozenset[int], ring_atom: int) -> frozenset[int]:
+        """Atoms reachable from ring_atom without re-entering the same ring.
+
+        Returns ring_atom itself plus any attached substituent subtree
+        (hydrogens, pendant groups). Other atoms of the same ring are treated
+        as barriers and are not traversed, so the returned set is exactly the
+        group that should rigidly follow ring_atom during a crankshaft rotation.
+
+        Args:
+            mol: RDKit molecule.
+            ring_atoms: Indices of all atoms in the ring currently being cranked.
+            ring_atom: Ring atom whose substituent tree is sought.
+
+        Returns:
+            frozenset of atom indices that move with ring_atom.
+        """
+        visited: set[int] = {ring_atom}
+        stack = [ring_atom]
+        while stack:
+            cur = stack.pop()
+            for nb in mol.GetAtomWithIdx(cur).GetNeighbors():
+                j = nb.GetIdx()
+                if j in visited:
+                    continue
+                if j in ring_atoms and j != ring_atom:
+                    continue
+                visited.add(j)
+                stack.append(j)
+        return frozenset(visited)
+
+    def _apply_crankshaft_move(self, conf_id: int) -> None:
+        """Rotate an arc of ring atoms about the axis through two anchor atoms.
+
+        Picks a ring uniformly from self._crankable_rings, two non-adjacent
+        anchors (a_p, a_q) uniformly from the ring, and rotates every atom of
+        the shorter inter-anchor arc (plus its substituent subtree) about the
+        a_p–a_q axis by a random angle. Because both anchors lie on the axis,
+        bond lengths between each anchor and its ring neighbours are preserved
+        exactly; only the anchor bond angles deform, and those relax in the
+        subsequent MMFF minimization.
+
+        Has no effect when no crankable rings exist.
+
+        Args:
+            conf_id: Conformer ID to modify in place.
+        """
+        if not self._crankable_rings:
+            return
+
+        ring_atoms, subtrees = random.choice(self._crankable_rings)
+        n = len(ring_atoms)
+
+        # Pick two non-adjacent anchors. Arc length k = number of interior atoms
+        # to rotate, drawn from [1, n-3]. For n=6 this is [1, 3]; for n=12, [1, 9].
+        # Shorter arcs give smaller local moves; longer arcs reshape the ring globally.
+        p = random.randrange(n)
+        arc_len = random.randint(1, n - 3)
+        # Interior positions are p+1, p+2, ..., p+arc_len (mod n); anchor q is p+arc_len+1.
+        interior = [(p + 1 + k) % n for k in range(arc_len)]
+        q = (p + arc_len + 1) % n
+
+        anchor_p_idx = ring_atoms[p]
+        anchor_q_idx = ring_atoms[q]
+
+        conf = self.mol.GetConformer(conf_id)
+        all_pos = conf.GetPositions()
+        axis_origin = all_pos[anchor_p_idx]
+        axis_vec = all_pos[anchor_q_idx] - axis_origin
+        axis_norm = float(np.linalg.norm(axis_vec))
+        if axis_norm < 1e-6:
+            return
+        axis_unit = axis_vec / axis_norm
+
+        # Rotation angle: uniform from [30°, 120°] with random sign, plus gaussian jitter.
+        # Smaller range than the ±180° limit keeps post-move geometries within reach of
+        # MMFF relaxation; larger rotations on dense macrocycles nearly always clash.
+        base = random.uniform(30.0, 120.0) * random.choice([-1.0, 1.0])
+        theta = np.deg2rad(base + np.random.normal(0.0, self.config.torsion_jitter_deg))
+
+        # Rodrigues' rotation matrix.
+        c, s = np.cos(theta), np.sin(theta)
+        one_c = 1.0 - c
+        ux, uy, uz = axis_unit
+        R = np.array(
+            [
+                [c + ux * ux * one_c, ux * uy * one_c - uz * s, ux * uz * one_c + uy * s],
+                [uy * ux * one_c + uz * s, c + uy * uy * one_c, uy * uz * one_c - ux * s],
+                [uz * ux * one_c - uy * s, uz * uy * one_c + ux * s, c + uz * uz * one_c],
+            ]
+        )
+
+        # Collect every atom that moves with the interior arc: each interior
+        # ring atom plus its substituent subtree.
+        moving: set[int] = set()
+        for pos_in_ring in interior:
+            moving |= subtrees[pos_in_ring]
+
+        if not moving:
+            return
+
+        moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
+        pts = all_pos[moving_arr] - axis_origin
+        rotated = pts @ R.T + axis_origin
+
+        for atom_idx, new_xyz in zip(moving_arr.tolist(), rotated, strict=True):
+            conf.SetAtomPosition(int(atom_idx), new_xyz.tolist())
+
     def _apply_ring_flip_move(self, conf_id: int) -> None:
         """Apply a ring flip to a randomly chosen non-aromatic ring.
 
@@ -520,16 +667,23 @@ class HybridProposer:
             return "global_shake"
 
         # Weighted random selection, suppressing unavailable move types.
-        probs = dict(self.config.move_probs)
+        probs = dict(self._current_move_probs)
 
         # Remove global_shake from weighted pool in constrained mode.
         if self.constraint_spec is not None:
             extra = probs.pop("global_shake", 0.0)
             probs["single_rotor"] = probs.get("single_rotor", 0.0) + extra
+            # Crankshaft moves the ring backbone, which would drift constrained atoms.
+            extra = probs.pop("crankshaft", 0.0)
+            probs["single_rotor"] = probs.get("single_rotor", 0.0) + extra
 
         if not self.rotor_model.ring_flips and "ring_flip" in probs:
             extra = probs.pop("ring_flip")
             # redistribute to single_rotor
+            probs["single_rotor"] = probs.get("single_rotor", 0.0) + extra
+
+        if not self._crankable_rings and "crankshaft" in probs:
+            extra = probs.pop("crankshaft")
             probs["single_rotor"] = probs.get("single_rotor", 0.0) + extra
 
         total = sum(probs.values())
@@ -541,6 +695,87 @@ class HybridProposer:
                 return move_type
 
         return "single_rotor"  # fallback
+
+    def record_accepted(self, conf_id: int, move_type: str) -> None:
+        """Tag a newly accepted conformer with the move that produced it.
+
+        The conformer is only scored later, when a dedupe pass decides whether
+        it was geometrically novel. Called from the main loop right after a
+        successful ``pool.insert`` for a candidate produced by this proposer.
+
+        Args:
+            conf_id: RDKit conformer ID of the accepted candidate.
+            move_type: Move type that produced it.
+        """
+        self._pending_tags[conf_id] = move_type
+
+    def record_dedupe_outcome(self, surviving_ids: set[int]) -> None:
+        """Score pending tags against which conformers survived the last dedupe.
+
+        For every pending (conf_id, move_type): if conf_id is still in the pool
+        after dedupe, credit the move with +1 reward; otherwise credit 0 (but
+        still count as an attempt). Pool-overflow eviction and PRISM pruning
+        are treated identically — both mean "this pose didn't add value" —
+        which is the intended signal for acceptance-vs-novelty.
+
+        Triggers an adaptation step at the end when ``adaptive_moves`` is on,
+        so the move probabilities shift in lockstep with the dedupe cycle.
+
+        Args:
+            surviving_ids: Conformer IDs still in the pool after dedupe.
+        """
+        for cid, move_type in self._pending_tags.items():
+            self._move_attempts[move_type] = self._move_attempts.get(move_type, 0.0) + 1.0
+            if cid in surviving_ids:
+                self._move_rewards[move_type] = self._move_rewards.get(move_type, 0.0) + 1.0
+        self._pending_tags.clear()
+
+        if self.config.adaptive_moves:
+            self._adapt_move_probs()
+
+    def _adapt_move_probs(self) -> None:
+        """Recompute ``_current_move_probs`` as a prior+empirical blend.
+
+        For each move type: empirical = rewards / attempts (fallback to base
+        prior when unsampled). The learned distribution is the normalized
+        empirical rates across the move types present in the base prior. The
+        current prob is then a convex combination of base prior and learned
+        rates, subject to a per-move floor so no move ever dies and exploration
+        continues.
+        """
+        base = self._base_move_probs
+        sampled_rates: list[float] = []
+        for m in base:
+            att = self._move_attempts.get(m, 0.0)
+            if att > 0:
+                sampled_rates.append(self._move_rewards.get(m, 0.0) / att)
+        neutral = sum(sampled_rates) / len(sampled_rates) if sampled_rates else 1.0
+
+        empirical: dict[str, float] = {}
+        for m in base:
+            att = self._move_attempts.get(m, 0.0)
+            if att > 0:
+                empirical[m] = self._move_rewards.get(m, 0.0) / att
+            else:
+                empirical[m] = neutral
+
+        total = sum(empirical.values())
+        if total <= 0:
+            learned = dict(base)
+        else:
+            learned = {m: v / total for m, v in empirical.items()}
+
+        blend = self.config.adapt_blend
+        floor = self.config.adapt_floor
+        blended = {m: blend * base[m] + (1.0 - blend) * learned[m] for m in base}
+        blended = {m: max(floor, v) for m, v in blended.items()}
+        total = sum(blended.values())
+        self._current_move_probs = {m: v / total for m, v in blended.items()}
+
+        decay = self.config.adapt_decay
+        for m in self._move_attempts:
+            self._move_attempts[m] *= decay
+            self._move_rewards[m] *= decay
 
     def _generate_candidate(self, pool: ConformerPool, step: int) -> tuple[int, str] | None:
         """Copy a parent, apply a move, optionally clash-check.
@@ -572,8 +807,15 @@ class HybridProposer:
             self._apply_global_shake(new_conf_id)
         elif move_type == "ring_flip":
             self._apply_ring_flip_move(new_conf_id)
+        elif move_type == "crankshaft":
+            self._apply_crankshaft_move(new_conf_id)
 
-        if not self.config.skip_clash_check:
+        # Crankshaft and ring_flip legitimately produce strained intermediate
+        # geometries (tight H..H in particular) that MMFF relaxes fine. The
+        # static clash threshold rejects most of these, so skip it for those
+        # move types and rely on the post-minimization energy filter instead.
+        clash_exempt = move_type in ("crankshaft", "ring_flip")
+        if not self.config.skip_clash_check and not clash_exempt:
             pos = self.mol.GetConformer(new_conf_id).GetPositions()
             diff = pos[:, None, :] - pos[None, :, :]
             dist2 = (diff * diff).sum(axis=-1)
@@ -854,12 +1096,17 @@ def run_hybrid_generation(
 
         for conf_id, energy, source in results:
             accepted = pool.insert(conf_id, energy, source=source)
-            if not accepted:
+            if accepted:
+                move_type = source.removeprefix("hybrid_") if source.startswith("hybrid_") else source
+                proposer.record_accepted(conf_id, move_type)
+            else:
                 mol.RemoveConformer(conf_id)
 
-        # Periodic dedupe
+        # Periodic dedupe — also the tick where the adaptive scheduler
+        # collects survival-based rewards and updates move probabilities.
         if pool.should_dedupe():
             pool.dedupe()
+            proposer.record_dedupe_outcome(set(pool.conf_ids))
 
     # Final selection
     final_ids = pool.select_final()

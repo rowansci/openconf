@@ -185,3 +185,4 @@ memory/
 static/iridium/*
 scripts/
 benchmarks/
+GDB20*

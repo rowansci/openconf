@@ -138,11 +138,12 @@ class ConformerConfig:
     shake_period: int = 20
     move_probs: dict[str, float] = field(
         default_factory=lambda: {
-            "single_rotor": 0.35,
-            "multi_rotor": 0.28,
-            "correlated": 0.18,
-            "global_shake": 0.09,
+            "single_rotor": 0.30,
+            "multi_rotor": 0.24,
+            "correlated": 0.16,
+            "global_shake": 0.08,
             "ring_flip": 0.10,
+            "crankshaft": 0.12,
         }
     )
     torsion_jitter_deg: float = 10.0
@@ -165,6 +166,10 @@ class ConformerConfig:
     minimize_batch_size: int = 8
     fast_dielectric: float = 10.0
     final_dielectric: float = 4.0
+    adaptive_moves: bool = False
+    adapt_blend: float = 0.5
+    adapt_floor: float = 0.02
+    adapt_decay: float = 0.6
 
     def __post_init__(self) -> None:
         if self.pool_max is None:
@@ -230,6 +235,7 @@ def preset_config(preset: ConformerPreset) -> "ConformerConfig":
                 dedupe_period=15,
                 shake_period=10,
                 final_select="diverse",
+                adaptive_moves=True,
             )
         case "ensemble":
             return ConformerConfig(
@@ -267,6 +273,7 @@ def preset_config(preset: ConformerPreset) -> "ConformerConfig":
                 minimize_batch_size=8,
                 parent_strategy="uniform",
                 final_select="diverse",
+                adaptive_moves=True,
             )
         case "analogue":
             return ConformerConfig(
