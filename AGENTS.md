@@ -80,7 +80,7 @@ Requirements
 
 #### Verification
 ```bash
-pixi run types
+uv run ty check .
 ```
 
 ### Code formatting
@@ -125,29 +125,29 @@ Via ruff
 
 ```bash
 # Setup
-pixi install                    # Install dependencies
+uv sync                         # Install dependencies
 
 # Code quality
-pixi run fmt                         # Format code
-pixi run lint                        # Lint code
-pixi run types                       # Type check
+uv run ruff format .                # Format code
+uv run ruff check .                 # Lint code
+uv run ty check .                   # Type check
 
 # Testing
-pixi run test                   # Run tests
-pixi run test --cov             # Run tests with coverage
-pixi run test -k "pattern"      # Run test matching pattern
-pixi run test -v                # Verbose output
+uv run pytest                   # Run tests
+uv run pytest --cov             # Run tests with coverage
+uv run pytest -k "pattern"      # Run test matching pattern
+uv run pytest -v                # Verbose output
 
 # Git workflow
 git add .
 git commit -m "feat: message"   # Hooks run automatically
 
 # Package management
-pixi add <package>                # Add a package
-pixi add --dev <package>          # Add a package to dev
-pixi lock                         # Check the lockfile matches the pyproject.toml (and update if different)
-pixi update                       # Update all packges in the lockfile
-pixi tree                         # Print the dependencies tree
+uv add <package>                  # Add a package
+uv add --dev <package>            # Add a package to dev
+uv lock                           # Check the lockfile matches the pyproject.toml
+uv sync --upgrade                 # Update packages from the lockfile
+uv tree                           # Print the dependency tree
 ```
 
 ## Code quality tools
@@ -253,12 +253,12 @@ Lint issues:
 Type issues:
 - Add missing type annotations
 - Fix type mismatches
-- Use `pixi run types` to verify locally
+- Use `uv run ty check .` to verify locally
 
 Test failures:
 - Fix failing tests or code
-- Run `pixi run test -v` for detailed output
-- Run specific test: `pixi run test hooks/test_file.py::test_name`
+- Run `uv run pytest -v` for detailed output
+- Run specific test: `uv run pytest tests/test_file.py::test_name`
 
 ## Commit guidelines
 
@@ -281,7 +281,7 @@ git commit -m "feat: add user authentication
 
 ## Additional resources
 
-- pixi documentation: https://pixi.sh
+- uv documentation: https://docs.astral.sh/uv/
 - ruff documentation: https://docs.astral.sh/ruff
 - ty documentation: https://github.com/astral-sh/ty
 - pytest documentation: https://docs.pytest.org

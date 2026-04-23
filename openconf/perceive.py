@@ -274,7 +274,7 @@ def prepare_molecule(mol: Chem.Mol, add_hs: bool = True) -> Chem.Mol:
 
     try:
         Chem.SanitizeMol(mol)
-    except Exception as e:
+    except (RuntimeError, ValueError) as e:
         raise ValueError(f"Could not sanitize molecule: {e}") from e
 
     # Assign stereochemistry

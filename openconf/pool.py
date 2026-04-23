@@ -12,6 +12,11 @@ from .config import ConformerConfig
 from .dedupe import prism_dedupe
 
 
+def _energy_or_inf(energy: float | None) -> float:
+    """Return a finite sentinel for missing energies."""
+    return energy if energy is not None else float("inf")
+
+
 def _build_3d_descriptors(mol: Chem.Mol, conf_id: int, radii: object) -> list[float]:
     """Build 3D descriptors for a single conformer without copying the molecule.
 
@@ -159,7 +164,7 @@ class ConformerPool:
     @property
     def energies(self) -> list[float]:
         """List of energies (in order of conf_ids)."""
-        return [self.records[cid].energy_kcal or float("inf") for cid in self.conf_ids]
+        return [_energy_or_inf(self.records[cid].energy_kcal) for cid in self.conf_ids]
 
     def insert(
         self,
@@ -193,9 +198,9 @@ class ConformerPool:
             if self._worst_dirty or self._worst_id is None:
                 self._worst_id = max(
                     self.records,
-                    key=lambda cid: self.records[cid].energy_kcal or float("inf"),
+                    key=lambda cid: _energy_or_inf(self.records[cid].energy_kcal),
                 )
-                self._worst_energy = self.records[self._worst_id].energy_kcal or float("inf")
+                self._worst_energy = _energy_or_inf(self.records[self._worst_id].energy_kcal)
                 self._worst_dirty = False
 
             if energy >= self._worst_energy:
@@ -258,7 +263,7 @@ class ConformerPool:
         self._worst_dirty = True
         # Also refresh _best_energy since dedupe may have removed the best.
         if self.records:
-            self._best_energy = min(r.energy_kcal or float("inf") for r in self.records.values())
+            self._best_energy = min(_energy_or_inf(r.energy_kcal) for r in self.records.values())
 
         return old_size - self.size
 

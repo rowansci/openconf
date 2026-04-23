@@ -3,7 +3,9 @@
 Combines torsion library biasing with MCMM-style exploration.
 """
 
+import dataclasses
 import random
+import time
 
 import numpy as np
 from rdkit import Chem
@@ -14,6 +16,133 @@ from ..perceive import RotorModel, filter_constrained_rotors
 from ..pool import ConformerPool
 from ..relax import get_minimizer, minimize_confs_mmff
 from ..torsionlib import TorsionLibrary
+
+_LARGE_FLEXIBLE_ROTATABLE_THRESHOLD = 12
+_DEFAULT_SEED_N_PER_ROTOR = 3
+_DEFAULT_DEDUPE_PERIOD = 50
+_DEFAULT_MINIMIZE_BATCH_SIZE = 8
+_DEFAULT_TOPOLOGY_AWARE_SEED_PRUNING: bool | None = None
+_DEFAULT_TOPOLOGY_AWARE_SEED_BUDGET: bool | None = None
+_TUNED_SEED_N_PER_ROTOR = 2
+_TUNED_DEDUPE_PERIOD = 100
+_TUNED_MINIMIZE_BATCH_SIZE = 16
+_TUNED_TOPOLOGY_AWARE_SEED_PRUNING = True
+_TUNED_TOPOLOGY_AWARE_SEED_BUDGET = True
+_TOPOLOGY_AWARE_PRUNE_THRESH_FLEXIBLE = 1.25
+_TOPOLOGY_AWARE_PRUNE_THRESH_ACYCLIC = 1.5
+_TOPOLOGY_AWARE_PRUNE_THRESH_HYDROCARBON = 1.75
+_TOPOLOGY_AWARE_SEED_SCALE_FLEXIBLE = 0.95
+_TOPOLOGY_AWARE_SEED_SCALE_ACYCLIC = 0.85
+_TOPOLOGY_AWARE_SEED_SCALE_HYDROCARBON = 0.75
+
+
+def _new_generation_stats() -> dict[str, float | int]:
+    """Create an empty generation-stats mapping."""
+    return {
+        "topology_tuned_defaults_applied": 0,
+        "requested_n_seeds": 0,
+        "effective_seed_n_per_rotor": 0,
+        "effective_seed_prune_rms_thresh": 0.0,
+        "effective_seed_minimization_iters": 0,
+        "effective_seed_budget_scale": 1.0,
+        "effective_dedupe_period": 0,
+        "effective_minimize_batch_size": 0,
+        "n_seed_conformers": 0,
+        "n_steps_executed": 0,
+        "n_batches": 0,
+        "n_candidate_attempts": 0,
+        "n_candidates_passed_clash": 0,
+        "n_clash_rejections": 0,
+        "n_minimization_calls": 0,
+        "n_minimization_failures": 0,
+        "n_pool_accepts": 0,
+        "n_pool_rejections": 0,
+        "n_dedupe_calls": 0,
+        "n_dedupe_removed": 0,
+        "n_final_selected": 0,
+        "seed_time_s": 0.0,
+        "seed_embedding_time_s": 0.0,
+        "seed_minimization_time_s": 0.0,
+        "proposal_stage_time_s": 0.0,
+        "minimization_time_s": 0.0,
+        "dedupe_time_s": 0.0,
+        "final_selection_time_s": 0.0,
+        "final_refine_time_s": 0.0,
+        "total_time_s": 0.0,
+    }
+
+
+def _is_large_flexible_non_macrocyclic(config: ConformerConfig, rotor_model: RotorModel) -> bool:
+    """Return whether the molecule matches the large-flexible tuning regime."""
+    return (
+        config.constraint_spec is None
+        and not rotor_model.ring_info.get("has_macrocycle")
+        and rotor_model.n_rotatable >= _LARGE_FLEXIBLE_ROTATABLE_THRESHOLD
+    )
+
+
+def _count_hetero_heavy_atoms(mol: Chem.Mol) -> int:
+    """Count heavy atoms that are not carbon."""
+    return sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() not in {1, 6})
+
+
+def _resolve_seed_prune_rms_thresh(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> float:
+    """Resolve the ETKDG prune threshold for the current molecule."""
+    threshold = config.seed_prune_rms_thresh
+    if rotor_model.ring_info.get("has_macrocycle"):
+        return -1.0
+    if threshold < 0.0 or not bool(config.topology_aware_seed_pruning):
+        return threshold
+    if not _is_large_flexible_non_macrocyclic(config, rotor_model):
+        return threshold
+
+    hetero_heavy = _count_hetero_heavy_atoms(mol)
+    ring_sizes = rotor_model.ring_info["ring_sizes"]
+    if not ring_sizes and hetero_heavy <= 1:
+        return max(threshold, _TOPOLOGY_AWARE_PRUNE_THRESH_HYDROCARBON)
+    if not ring_sizes and hetero_heavy <= 3:
+        return max(threshold, _TOPOLOGY_AWARE_PRUNE_THRESH_ACYCLIC)
+    return max(threshold, _TOPOLOGY_AWARE_PRUNE_THRESH_FLEXIBLE)
+
+
+def _resolve_seed_budget_scale(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> float:
+    """Resolve a topology-aware scale factor for ETKDG seed count."""
+    if not bool(config.topology_aware_seed_budget):
+        return 1.0
+    if not _is_large_flexible_non_macrocyclic(config, rotor_model):
+        return 1.0
+
+    hetero_heavy = _count_hetero_heavy_atoms(mol)
+    ring_sizes = rotor_model.ring_info["ring_sizes"]
+    if not ring_sizes and hetero_heavy <= 1:
+        return _TOPOLOGY_AWARE_SEED_SCALE_HYDROCARBON
+    if not ring_sizes and hetero_heavy <= 3:
+        return _TOPOLOGY_AWARE_SEED_SCALE_ACYCLIC
+    return _TOPOLOGY_AWARE_SEED_SCALE_FLEXIBLE
+
+
+def _resolve_runtime_tuned_config(config: ConformerConfig, rotor_model: RotorModel) -> tuple[ConformerConfig, bool]:
+    """Adjust default-equivalent runtime knobs for large flexible molecules."""
+    if not config.auto_tune_large_flexible:
+        return config, False
+    if not _is_large_flexible_non_macrocyclic(config, rotor_model):
+        return config, False
+
+    overrides: dict[str, int | bool] = {}
+    if config.n_seeds is None and config.seed_n_per_rotor == _DEFAULT_SEED_N_PER_ROTOR:
+        overrides["seed_n_per_rotor"] = _TUNED_SEED_N_PER_ROTOR
+    if config.dedupe_period == _DEFAULT_DEDUPE_PERIOD:
+        overrides["dedupe_period"] = _TUNED_DEDUPE_PERIOD
+    if config.minimize_batch_size == _DEFAULT_MINIMIZE_BATCH_SIZE and config.num_threads != 1:
+        overrides["minimize_batch_size"] = _TUNED_MINIMIZE_BATCH_SIZE
+    if config.topology_aware_seed_pruning is _DEFAULT_TOPOLOGY_AWARE_SEED_PRUNING:
+        overrides["topology_aware_seed_pruning"] = _TUNED_TOPOLOGY_AWARE_SEED_PRUNING
+    if config.topology_aware_seed_budget is _DEFAULT_TOPOLOGY_AWARE_SEED_BUDGET:
+        overrides["topology_aware_seed_budget"] = _TUNED_TOPOLOGY_AWARE_SEED_BUDGET
+
+    if not overrides:
+        return config, False
+    return dataclasses.replace(config, **overrides), True
 
 
 def _compute_n_seeds(rotor_model: RotorModel, n_per_rotor: int = 3) -> int:
@@ -129,6 +258,7 @@ class HybridProposer:
         torsion_lib: TorsionLibrary,
         config: ConformerConfig,
         constraint_spec: ConstraintSpec | None = None,
+        stats: dict[str, float | int] | None = None,
     ):
         """Initialize the hybrid proposer.
 
@@ -141,12 +271,14 @@ class HybridProposer:
                 ETKDG seeding is replaced by seeding from an existing conformer,
                 global shake moves are suppressed, and minimization applies MMFF
                 position restraints to keep constrained atoms fixed.
+            stats: Optional benchmark timing/counter mapping updated in place.
         """
         self.constraint_spec = constraint_spec
         self.mol = mol
         self.rotor_model = rotor_model
         self.torsion_lib = torsion_lib
         self.config = config
+        self.stats = stats
 
         self.fast_minimizer = get_minimizer(
             config.minimizer, max_iters=config.fast_minimization_iters, dielectric=config.fast_dielectric
@@ -233,6 +365,16 @@ class HybridProposer:
         self._move_rewards: dict[str, float] = dict.fromkeys(config.move_probs, 0.0)
         self._pending_tags: dict[int, str] = {}
 
+    def _increment_stat(self, key: str, amount: int = 1) -> None:
+        """Increment an integer stat when instrumentation is enabled."""
+        if self.stats is not None:
+            self.stats[key] = int(self.stats.get(key, 0)) + amount
+
+    def _add_time_stat(self, key: str, elapsed_s: float) -> None:
+        """Accumulate a timing stat when instrumentation is enabled."""
+        if self.stats is not None:
+            self.stats[key] = float(self.stats.get(key, 0.0)) + elapsed_s
+
     def generate_seeds(self, n_seeds: int) -> list[tuple[int, float]]:
         """Generate seed conformers using ETKDG, then fast-minimize in batch.
 
@@ -245,7 +387,7 @@ class HybridProposer:
         params = AllChem.ETKDGv3()
         params.randomSeed = self.config.random_seed or -1
         params.numThreads = int(self.config.num_threads or 0)
-        params.pruneRmsThresh = self.config.seed_prune_rms_thresh
+        params.pruneRmsThresh = _resolve_seed_prune_rms_thresh(self.mol, self.rotor_model, self.config)
 
         # Enable ring-aware sampling based on what's in the molecule.
         # useSmallRingTorsions: crystallography-derived preferences for 3-7-membered rings.
@@ -262,6 +404,7 @@ class HybridProposer:
             # the MMFF stage.
             params.pruneRmsThresh = -1.0
 
+        embed_start = time.perf_counter()
         conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
         if not conf_ids:
             # ETKDG failed (common for organometallics where distance-bound tables
@@ -269,20 +412,29 @@ class HybridProposer:
             # let UFF minimization produce a reasonable geometry.
             params.useRandomCoords = True
             conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
+        self._add_time_stat("seed_embedding_time_s", time.perf_counter() - embed_start)
         if not conf_ids:
             return []
 
         # Minimize each seed using pre-prepared MMFF props (includes fast_dielectric).
         mmff_props = getattr(self.fast_minimizer, "_mmff_props", None)
-        max_its = int(self.fast_minimizer.max_iters)
+        max_its = int(
+            self.config.seed_minimization_iters
+            if self.config.seed_minimization_iters is not None
+            else self.fast_minimizer.max_iters
+        )
         nthreads = int(self.config.num_threads or 0)
 
         if mmff_props is not None:
+            minimize_start = time.perf_counter()
             energies = minimize_confs_mmff(self.mol, mmff_props, conf_ids, max_its, nthreads)
+            self._add_time_stat("seed_minimization_time_s", time.perf_counter() - minimize_start)
             return list(zip(conf_ids, energies, strict=True))
 
         # Fallback: UFF
+        minimize_start = time.perf_counter()
         AllChem.UFFOptimizeMoleculeConfs(self.mol, numThreads=nthreads, maxIters=max_its)
+        self._add_time_stat("seed_minimization_time_s", time.perf_counter() - minimize_start)
         return [
             (
                 cid,
@@ -380,12 +532,7 @@ class HybridProposer:
             return None
         new_conf_id, move_type = result
 
-        try:
-            energy = self._minimize_constrained(self.mol, new_conf_id, use_fast=True)
-        except Exception:
-            self.mol.RemoveConformer(new_conf_id)
-            return None
-
+        energy = self._minimize_constrained(self.mol, new_conf_id, use_fast=True)
         if not np.isfinite(energy):
             self.mol.RemoveConformer(new_conf_id)
             return None
@@ -779,6 +926,7 @@ class HybridProposer:
         if parent_id is None:
             return None
 
+        self._increment_stat("n_candidate_attempts")
         new_conf_id = _copy_conformer(self.mol, parent_id)
         move_type = self._select_move_type(step)
 
@@ -805,9 +953,11 @@ class HybridProposer:
             diff = pos[:, None, :] - pos[None, :, :]
             dist2 = (diff * diff).sum(axis=-1)
             if bool((dist2[self._nonbonded_mask] < self._clash_threshold2).any()):
+                self._increment_stat("n_clash_rejections")
                 self.mol.RemoveConformer(new_conf_id)
                 return None
 
+        self._increment_stat("n_candidates_passed_clash")
         return (new_conf_id, move_type)
 
     def propose(self, pool: ConformerPool, step: int) -> tuple[int, float, str] | None:
@@ -825,13 +975,12 @@ class HybridProposer:
             return None
         new_conf_id, move_type = result
 
-        try:
-            energy = self.fast_minimizer.minimize(self.mol, new_conf_id)
-        except Exception:
-            self.mol.RemoveConformer(new_conf_id)
-            return None
-
+        self._increment_stat("n_minimization_calls")
+        minimize_start = time.perf_counter()
+        energy = self.fast_minimizer.minimize(self.mol, new_conf_id)
+        self._add_time_stat("minimization_time_s", time.perf_counter() - minimize_start)
         if not np.isfinite(energy):
+            self._increment_stat("n_minimization_failures")
             self.mol.RemoveConformer(new_conf_id)
             return None
 
@@ -887,6 +1036,8 @@ class HybridProposer:
         # 3. Minimize staging conformers using pre-prepared props (includes fast_dielectric).
         nthreads = int(self.config.num_threads or 0)
         max_its = int(self.fast_minimizer.max_iters)
+        self._increment_stat("n_minimization_calls", len(stage_ids))
+        minimize_start = time.perf_counter()
         if self._staging_mmff_props is not None:
             energies = minimize_confs_mmff(self._staging_mol, self._staging_mmff_props, stage_ids, max_its, nthreads)
         else:
@@ -897,6 +1048,7 @@ class HybridProposer:
                 else float("inf")
                 for sid in stage_ids
             ]
+        self._add_time_stat("minimization_time_s", time.perf_counter() - minimize_start)
         stage_energies = dict(zip(stage_ids, energies, strict=True))
 
         # 4. Transfer accepted conformers back; discard rejected ones.
@@ -912,6 +1064,8 @@ class HybridProposer:
                 minimized_conf = self._staging_mol.GetConformer(stage_id)
                 final_id = self.mol.AddConformer(Chem.Conformer(minimized_conf), assignId=True)
                 results.append((final_id, energy, f"hybrid_{move_type}"))
+            else:
+                self._increment_stat("n_minimization_failures")
 
         # 5. Clear staging mol for next batch.
         self._staging_mol.RemoveAllConformers()
@@ -1022,7 +1176,7 @@ def run_hybrid_generation(
     mol: Chem.Mol,
     rotor_model: RotorModel,
     config: ConformerConfig,
-) -> tuple[Chem.Mol, list[int], list[float]]:
+) -> tuple[Chem.Mol, list[int], list[float], dict[str, float | int]]:
     """Run hybrid conformer generation.
 
     Args:
@@ -1031,8 +1185,10 @@ def run_hybrid_generation(
         config: Generation configuration.
 
     Returns:
-        Tuple of (mol, conf_ids, energies).
+        Tuple of (mol, conf_ids, energies, generation_stats).
     """
+    total_start = time.perf_counter()
+    stats = _new_generation_stats() if config.collect_stats else {}
     constraint_spec = config.constraint_spec
 
     # Filter rotors before building the proposer so _rotor_angles is computed
@@ -1040,10 +1196,26 @@ def run_hybrid_generation(
     if constraint_spec is not None:
         rotor_model = filter_constrained_rotors(rotor_model, constraint_spec.constrained_atoms)
 
-    torsion_lib = TorsionLibrary()
-    proposer = HybridProposer(mol, rotor_model, torsion_lib, config, constraint_spec=constraint_spec)
-    pool = ConformerPool(mol, config)
+    effective_config, tuned_defaults_applied = _resolve_runtime_tuned_config(config, rotor_model)
+    if stats:
+        stats["topology_tuned_defaults_applied"] = int(tuned_defaults_applied)
+        stats["effective_seed_n_per_rotor"] = effective_config.seed_n_per_rotor
+        stats["effective_seed_prune_rms_thresh"] = _resolve_seed_prune_rms_thresh(mol, rotor_model, effective_config)
+        stats["effective_seed_minimization_iters"] = (
+            effective_config.seed_minimization_iters
+            if effective_config.seed_minimization_iters is not None
+            else effective_config.fast_minimization_iters
+        )
+        stats["effective_dedupe_period"] = effective_config.dedupe_period
+        stats["effective_minimize_batch_size"] = effective_config.minimize_batch_size
 
+    torsion_lib = TorsionLibrary()
+    proposer = HybridProposer(
+        mol, rotor_model, torsion_lib, effective_config, constraint_spec=constraint_spec, stats=stats or None
+    )
+    pool = ConformerPool(mol, effective_config)
+
+    seed_start = time.perf_counter()
     if constraint_spec is not None:
         # Constrained mode: seed from the single starting conformer already in mol.
         existing_ids = [c.GetId() for c in mol.GetConformers()]
@@ -1054,13 +1226,26 @@ def run_hybrid_generation(
             )
         seeds = proposer.seed_from_conformer(existing_ids[0])
         seed_source = "seed_pose"
+        if stats:
+            stats["requested_n_seeds"] = 1
     else:
         # Standard mode: ETKDG seeding.
         n_seeds = (
-            config.n_seeds if config.n_seeds is not None else _compute_n_seeds(rotor_model, config.seed_n_per_rotor)
+            effective_config.n_seeds
+            if effective_config.n_seeds is not None
+            else _compute_n_seeds(rotor_model, effective_config.seed_n_per_rotor)
         )
+        seed_budget_scale = _resolve_seed_budget_scale(mol, rotor_model, effective_config)
+        if effective_config.n_seeds is None and seed_budget_scale != 1.0:
+            n_seeds = max(20, round(n_seeds * seed_budget_scale))
         seeds = proposer.generate_seeds(n_seeds)
         seed_source = "seed_etkdg"
+        if stats:
+            stats["requested_n_seeds"] = n_seeds
+            stats["effective_seed_budget_scale"] = seed_budget_scale
+    if stats:
+        stats["seed_time_s"] = time.perf_counter() - seed_start
+        stats["n_seed_conformers"] = len(seeds)
 
     for conf_id, energy in seeds:
         pool.insert(conf_id, energy, source=seed_source)
@@ -1068,10 +1253,11 @@ def run_hybrid_generation(
     # Run exploration.
     # Batch mode: accumulate minimize_batch_size proposals, minimize in parallel.
     # Sequential mode (batch_size=1): original one-at-a-time behaviour.
-    batch_size = config.minimize_batch_size
+    batch_size = effective_config.minimize_batch_size
     step = 0
     stagnation = 0
-    while step < config.n_steps:
+    while step < effective_config.n_steps:
+        proposal_start = time.perf_counter()
         if batch_size > 1:
             results = proposer.propose_batch(pool, step)
             step_inc = batch_size
@@ -1079,6 +1265,11 @@ def run_hybrid_generation(
             result = proposer.propose(pool, step)
             results = [result] if result is not None else []
             step_inc = 1
+        if stats:
+            stats["proposal_stage_time_s"] = float(stats["proposal_stage_time_s"]) + (
+                time.perf_counter() - proposal_start
+            )
+            stats["n_batches"] = int(stats["n_batches"]) + 1
         step += step_inc
 
         any_accepted = False
@@ -1086,40 +1277,63 @@ def run_hybrid_generation(
             accepted = pool.insert(conf_id, energy, source=source)
             if accepted:
                 any_accepted = True
+                if stats:
+                    stats["n_pool_accepts"] = int(stats["n_pool_accepts"]) + 1
                 move_type = source.removeprefix("hybrid_") if source.startswith("hybrid_") else source
                 proposer.record_accepted(conf_id, move_type)
             else:
+                if stats:
+                    stats["n_pool_rejections"] = int(stats["n_pool_rejections"]) + 1
                 mol.RemoveConformer(conf_id)
 
         if any_accepted:
             stagnation = 0
         else:
             stagnation += step_inc
-        if config.patience > 0 and stagnation >= config.patience:
+        if effective_config.patience > 0 and stagnation >= effective_config.patience:
             break
 
         # Periodic dedupe — also the tick where the adaptive scheduler
         # collects survival-based rewards and updates move probabilities.
         if pool.should_dedupe():
-            pool.dedupe()
+            dedupe_start = time.perf_counter()
+            removed = pool.dedupe()
+            if stats:
+                stats["dedupe_time_s"] = float(stats["dedupe_time_s"]) + (time.perf_counter() - dedupe_start)
+                stats["n_dedupe_calls"] = int(stats["n_dedupe_calls"]) + 1
+                stats["n_dedupe_removed"] = int(stats["n_dedupe_removed"]) + removed
             proposer.record_dedupe_outcome(set(pool.conf_ids))
 
     # Final selection
+    final_selection_start = time.perf_counter()
     final_ids = pool.select_final()
+    if stats:
+        stats["final_selection_time_s"] = time.perf_counter() - final_selection_start
+        stats["n_final_selected"] = len(final_ids)
+        stats["n_steps_executed"] = step
 
     # Full refinement on the final set (optional — skip for docking-prep workflows).
-    if config.do_final_refine:
+    if effective_config.do_final_refine:
+        final_refine_start = time.perf_counter()
         if constraint_spec is not None:
             final_energies = proposer.full_refine_final_constrained(
-                mol, final_ids, config.max_minimization_iters, dielectric=config.final_dielectric
+                mol, final_ids, effective_config.max_minimization_iters, dielectric=effective_config.final_dielectric
             )
         else:
             final_energies = proposer.full_refine_final(
-                mol, final_ids, config.num_threads, config.max_minimization_iters, dielectric=config.final_dielectric
+                mol,
+                final_ids,
+                effective_config.num_threads,
+                effective_config.max_minimization_iters,
+                dielectric=effective_config.final_dielectric,
             )
+        if stats:
+            stats["final_refine_time_s"] = time.perf_counter() - final_refine_start
     else:
         # Return the fast-minimized energies already stored in the pool.
-        energy_map = {cid: (rec.energy_kcal or float("inf")) for cid, rec in pool.records.items()}
+        energy_map = {
+            cid: (rec.energy_kcal if rec.energy_kcal is not None else float("inf")) for cid, rec in pool.records.items()
+        }
         final_energies = [energy_map.get(cid, float("inf")) for cid in final_ids]
 
     # Clean up: remove non-selected conformers
@@ -1128,4 +1342,7 @@ def run_hybrid_generation(
     for cid in all_ids - final_set:
         mol.RemoveConformer(cid)
 
-    return mol, final_ids, final_energies
+    if stats:
+        stats["total_time_s"] = time.perf_counter() - total_start
+
+    return mol, final_ids, final_energies, stats

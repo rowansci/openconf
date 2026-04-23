@@ -12,8 +12,6 @@ Examples:
     >>> ensemble = generate_conformers(mol)  # doctest: +SKIP
 """
 
-__version__ = "0.1.0"
-
 from .api import (
     ConformerEnsemble,
     ConformerRecord,

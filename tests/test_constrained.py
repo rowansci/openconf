@@ -15,16 +15,6 @@ def _make_butylbenzene_pose() -> tuple[Chem.Mol, list[int]]:
     return mol, ring_atoms
 
 
-# ---------------------------------------------------------------------------
-# Imports / preset
-# ---------------------------------------------------------------------------
-
-
-def test_imports():
-    """New public symbols are importable from the top-level package."""
-    from openconf import ConstraintSpec, filter_constrained_rotors, generate_conformers_from_pose  # noqa: F401
-
-
 def test_analogue_preset_values():
     """'analogue' preset returns the expected config."""
     from openconf import preset_config

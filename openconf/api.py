@@ -1,7 +1,7 @@
 """Main API for openconf conformer generation."""
 
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from rdkit import Chem
@@ -22,10 +22,13 @@ class ConformerEnsemble:
     Attributes:
         mol: RDKit molecule containing all conformers.
         records: List of ConformerRecord objects.
+        generation_stats: Optional benchmark timings and counters collected
+            during generation when ``ConformerConfig.collect_stats`` is enabled.
     """
 
     mol: Chem.Mol
     records: list[ConformerRecord]
+    generation_stats: dict[str, float | int] = field(default_factory=dict)
 
     @property
     def conf_ids(self) -> list[int]:
@@ -35,7 +38,7 @@ class ConformerEnsemble:
     @property
     def energies(self) -> list[float]:
         """List of energies."""
-        return [r.energy_kcal or float("inf") for r in self.records]
+        return [r.energy_kcal if r.energy_kcal is not None else float("inf") for r in self.records]
 
     @property
     def n_conformers(self) -> int:
@@ -110,8 +113,12 @@ class ConformerEnsemble:
             Array of shape ``(n_conformers,)`` summing to 1.
 
         Raises:
+            ValueError: If temperature is not positive.
             ValueError: If the ensemble has no conformers with finite energies.
         """
+        if temperature <= 0.0:
+            raise ValueError(f"temperature must be > 0, got {temperature}.")
+
         energies = np.array(
             [r.energy_kcal if r.energy_kcal is not None else np.inf for r in self.records],
             dtype=float,
@@ -342,7 +349,7 @@ def generate_conformers(
 
     # Run generation based on method
     if method == "hybrid":
-        mol, conf_ids, energies = run_hybrid_generation(mol, rotor_model, config)
+        mol, conf_ids, energies, generation_stats = run_hybrid_generation(mol, rotor_model, config)
     else:
         raise ValueError(f"Unknown method: {method}. Available: 'hybrid'")
 
@@ -356,7 +363,7 @@ def generate_conformers(
         for cid, energy in zip(conf_ids, energies, strict=True)
     ]
 
-    return ConformerEnsemble(mol=mol, records=records)
+    return ConformerEnsemble(mol=mol, records=records, generation_stats=generation_stats)
 
 
 def generate_conformers_from_pose(
@@ -430,7 +437,7 @@ def generate_conformers_from_pose(
 
     rotor_model = build_rotor_model(prepped_mol)
 
-    prepped_mol, conf_ids, energies = run_hybrid_generation(prepped_mol, rotor_model, resolved_config)
+    prepped_mol, conf_ids, energies, generation_stats = run_hybrid_generation(prepped_mol, rotor_model, resolved_config)
 
     records = [
         ConformerRecord(
@@ -441,4 +448,4 @@ def generate_conformers_from_pose(
         for cid, energy in zip(conf_ids, energies, strict=True)
     ]
 
-    return ConformerEnsemble(mol=prepped_mol, records=records)
+    return ConformerEnsemble(mol=prepped_mol, records=records, generation_stats=generation_stats)

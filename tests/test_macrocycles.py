@@ -247,7 +247,3 @@ def test_ring_torsion_diversity(name: str, smiles: str, min_sigs: int):
     ring_atoms = list(ens.mol.GetRingInfo().AtomRings()[0])
     sigs = {_torsion_signature(_ring_torsions(ens.mol, r.conf_id, ring_atoms)) for r in ens.records}
     assert len(sigs) >= min_sigs, f"{name}: found {len(sigs)} torsion families, need ≥ {min_sigs}"
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

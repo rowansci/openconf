@@ -4,15 +4,6 @@ import pytest
 from rdkit import Chem
 
 
-def test_import():
-    """Test that the package can be imported."""
-    import openconf
-
-    assert hasattr(openconf, "generate_conformers")
-    assert hasattr(openconf, "ConformerConfig")
-    assert hasattr(openconf, "ConformerEnsemble")
-
-
 def test_prepare_molecule():
     """Test molecule preparation."""
     from openconf import prepare_molecule
@@ -152,7 +143,9 @@ def test_sdf_roundtrip_preserves_metadata(tmp_path):
 
     assert loaded.n_conformers == ensemble.n_conformers
     for orig, back in zip(ensemble.records, loaded.records, strict=True):
-        assert abs((orig.energy_kcal or 0) - (back.energy_kcal or 0)) < 1e-3
+        orig_energy = orig.energy_kcal if orig.energy_kcal is not None else 0.0
+        back_energy = back.energy_kcal if back.energy_kcal is not None else 0.0
+        assert abs(orig_energy - back_energy) < 1e-3
         assert back.source == orig.source
         assert back.tags.get("rank") == orig.tags["rank"]
 
@@ -177,6 +170,17 @@ def test_boltzmann_weights_sum_to_one():
     # Higher temperature should flatten the distribution (max weight decreases).
     hot = ensemble.boltzmann_weights(temperature=1000.0)
     assert hot.max() <= weights.max() + 1e-9
+
+
+def test_boltzmann_weights_reject_non_positive_temperature():
+    """Boltzmann weights require a positive temperature."""
+    from openconf import ConformerConfig, generate_conformers
+
+    config = ConformerConfig(max_out=5, n_seeds=3, n_steps=20, pool_max=30, random_seed=7)
+    ensemble = generate_conformers("CCCCC", config=config)
+
+    with pytest.raises(ValueError, match="temperature"):
+        ensemble.boltzmann_weights(temperature=0.0)
 
 
 def test_rmsd_to_and_pairwise():
@@ -205,17 +209,157 @@ def test_rmsd_to_and_pairwise():
         assert abs(matrix[0, i] - r) < 1e-6
 
 
-def test_softmax_temperature_is_configurable():
-    """The parent softmax temperature is read from ConformerConfig."""
-    from openconf import ConformerConfig
-    from openconf.pool import ConformerPool
+def test_zero_energy_is_preserved():
+    """Zero-valued energies are not treated as missing data."""
+    from openconf import ConformerConfig, ConformerEnsemble
+    from openconf.pool import ConformerPool, ConformerRecord
 
-    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
-    config = ConformerConfig(parent_softmax_temperature_kcal=0.25)
-    pool = ConformerPool(mol=mol, config=config)
-    # Field is plumbed through and defaults are preserved.
-    assert pool.config.parent_softmax_temperature_kcal == 0.25
-    assert ConformerConfig().parent_softmax_temperature_kcal == 2.0
+    ensemble = ConformerEnsemble(
+        mol=Chem.AddHs(Chem.MolFromSmiles("CC")),
+        records=[
+            ConformerRecord(conf_id=0, energy_kcal=0.0),
+            ConformerRecord(conf_id=1, energy_kcal=1.5),
+        ],
+    )
+    assert ensemble.energies == [0.0, 1.5]
+
+    pool = ConformerPool(mol=Chem.AddHs(Chem.MolFromSmiles("CCCC")), config=ConformerConfig(max_out=1, pool_max=2))
+    pool.records = {
+        0: ConformerRecord(conf_id=0, energy_kcal=0.0),
+        1: ConformerRecord(conf_id=1, energy_kcal=1.5),
+    }
+    assert pool.energies == [0.0, 1.5]
+    assert pool.get_parent(strategy="best") == 0
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"max_out": 0}, "max_out"),
+        ({"pool_max": 4, "max_out": 5}, "pool_max"),
+        ({"parent_softmax_temperature_kcal": 0.0}, "parent_softmax_temperature_kcal"),
+        ({"move_probs": {}}, "move_probs"),
+        ({"move_probs": {"unknown": 1.0}}, "unsupported move types"),
+        ({"seed_prune_rms_thresh": -0.5}, "seed_prune_rms_thresh"),
+        ({"seed_minimization_iters": -1}, "seed_minimization_iters"),
+    ],
+)
+def test_config_validation_rejects_invalid_values(kwargs, match):
+    """ConformerConfig rejects invalid runtime values."""
+    from openconf import ConformerConfig
+
+    with pytest.raises(ValueError, match=match):
+        ConformerConfig(**kwargs)
+
+
+def test_collect_stats_populates_generation_stats():
+    """Enabling stats collection records benchmark timings and counters."""
+    from openconf import ConformerConfig, generate_conformers
+
+    config = ConformerConfig(max_out=5, n_seeds=3, n_steps=20, pool_max=30, random_seed=5, collect_stats=True)
+    ensemble = generate_conformers("CCCC", config=config)
+
+    assert ensemble.generation_stats
+    assert float(ensemble.generation_stats["total_time_s"]) >= 0.0
+    assert float(ensemble.generation_stats["seed_time_s"]) >= 0.0
+    assert int(ensemble.generation_stats["n_seed_conformers"]) >= 1
+    assert int(ensemble.generation_stats["n_steps_executed"]) >= 0
+
+
+def test_large_flexible_defaults_are_topology_tuned():
+    """Large flexible molecules use tuned default-equivalent runtime settings."""
+    from openconf import ConformerConfig, generate_conformers
+
+    config = ConformerConfig(max_out=5, n_steps=20, pool_max=30, random_seed=5, collect_stats=True)
+    ensemble = generate_conformers("CCCCCCCCCCCCCCCC", config=config)
+
+    assert int(ensemble.generation_stats["topology_tuned_defaults_applied"]) == 1
+    assert int(ensemble.generation_stats["effective_seed_n_per_rotor"]) == 2
+    assert float(ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == 1.75
+    assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
+    assert float(ensemble.generation_stats["effective_seed_budget_scale"]) == 0.75
+    assert int(ensemble.generation_stats["effective_dedupe_period"]) == 100
+    assert int(ensemble.generation_stats["effective_minimize_batch_size"]) == 16
+
+
+def test_macrocycles_do_not_use_large_flexible_tuning():
+    """Macrocycles keep the default scheduling knobs."""
+    from openconf import ConformerConfig, generate_conformers
+
+    config = ConformerConfig(max_out=5, n_steps=20, pool_max=30, random_seed=5, collect_stats=True)
+    ensemble = generate_conformers("C1CCCCCCCCCCC1", config=config)
+
+    assert int(ensemble.generation_stats["topology_tuned_defaults_applied"]) == 0
+    assert int(ensemble.generation_stats["effective_seed_n_per_rotor"]) == 3
+    assert float(ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == -1.0
+    assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
+    assert float(ensemble.generation_stats["effective_seed_budget_scale"]) == 1.0
+    assert int(ensemble.generation_stats["effective_dedupe_period"]) == 50
+    assert int(ensemble.generation_stats["effective_minimize_batch_size"]) == 8
+
+
+def test_large_flexible_tuning_respects_overrides_and_opt_out():
+    """Explicit overrides and opt-out disable the topology tuning path."""
+    from openconf import ConformerConfig, generate_conformers
+
+    overridden = ConformerConfig(
+        max_out=5,
+        n_steps=20,
+        pool_max=30,
+        random_seed=5,
+        collect_stats=True,
+        seed_n_per_rotor=5,
+        dedupe_period=25,
+        minimize_batch_size=4,
+        topology_aware_seed_pruning=False,
+        topology_aware_seed_budget=False,
+    )
+    overridden_ensemble = generate_conformers("CCCCCCCCCCCCCCCC", config=overridden)
+    assert int(overridden_ensemble.generation_stats["topology_tuned_defaults_applied"]) == 0
+    assert int(overridden_ensemble.generation_stats["effective_seed_n_per_rotor"]) == 5
+    assert float(overridden_ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == 1.0
+    assert int(overridden_ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
+    assert float(overridden_ensemble.generation_stats["effective_seed_budget_scale"]) == 1.0
+    assert int(overridden_ensemble.generation_stats["effective_dedupe_period"]) == 25
+    assert int(overridden_ensemble.generation_stats["effective_minimize_batch_size"]) == 4
+
+    opt_out = ConformerConfig(
+        max_out=5,
+        n_steps=20,
+        pool_max=30,
+        random_seed=5,
+        collect_stats=True,
+        auto_tune_large_flexible=False,
+    )
+    opt_out_ensemble = generate_conformers("CCCCCCCCCCCCCCCC", config=opt_out)
+    assert int(opt_out_ensemble.generation_stats["topology_tuned_defaults_applied"]) == 0
+    assert int(opt_out_ensemble.generation_stats["effective_seed_n_per_rotor"]) == 3
+    assert float(opt_out_ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == 1.0
+    assert int(opt_out_ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
+    assert float(opt_out_ensemble.generation_stats["effective_seed_budget_scale"]) == 1.0
+    assert int(opt_out_ensemble.generation_stats["effective_dedupe_period"]) == 50
+    assert int(opt_out_ensemble.generation_stats["effective_minimize_batch_size"]) == 8
+
+
+def test_seed_experiment_knobs_are_reflected_in_stats():
+    """Seed experiment overrides are reflected in the collected stats."""
+    from openconf import ConformerConfig, generate_conformers
+
+    config = ConformerConfig(
+        max_out=5,
+        n_steps=20,
+        pool_max=30,
+        random_seed=5,
+        collect_stats=True,
+        topology_aware_seed_pruning=True,
+        topology_aware_seed_budget=True,
+        seed_minimization_iters=10,
+    )
+    ensemble = generate_conformers("CCCCCCCCCCCCCCCC", config=config)
+
+    assert float(ensemble.generation_stats["effective_seed_prune_rms_thresh"]) > 1.0
+    assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 10
+    assert float(ensemble.generation_stats["effective_seed_budget_scale"]) < 1.0
 
 
 def test_xyz_io(tmp_path):
@@ -544,7 +688,3 @@ def test_metal_ligand_flat_angles():
         assert np.allclose(weights_arr, 1.0 / 12.0)
         # Equally spaced across [0, 360)
         assert np.allclose(np.diff(angles_arr), 30.0)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
