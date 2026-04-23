@@ -7,8 +7,6 @@ from typing import Any
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import Descriptors3D, rdFreeSASA
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
 
 from .config import ConformerConfig
 from .dedupe import prism_dedupe
@@ -44,59 +42,62 @@ def _build_3d_descriptors(mol: Chem.Mol, conf_id: int, radii: object) -> list[fl
     ]
 
 
-def _pick_diverse_by_clustering(
+def _pick_diverse_maxmin(
     mol: Chem.Mol,
     conf_ids: list[int],
     energies: list[float],
     k: int,
 ) -> list[int]:
-    """Select k diverse conformers using k-means clustering on 3D descriptors.
+    """Select k diverse conformers using greedy MaxMin on shape descriptors.
 
-    Clusters conformers by shape descriptors, then picks the lowest-energy
-    conformer from each cluster.
+    Seeds with the lowest-energy conformer, then repeatedly picks the conformer
+    farthest (in normalized descriptor space) from all already-selected ones.
+    Uses the same six rotation-invariant descriptors as the old clustering approach
+    (SASA, polar SASA, Rgyr, PBF, NPR1, NPR2) but directly maximizes the minimum
+    pairwise distance rather than clustering.
 
     Args:
         mol: RDKit molecule with conformers.
-        conf_ids: List of conformer IDs to cluster.
+        conf_ids: List of conformer IDs to choose from.
         energies: Energies corresponding to each conformer.
-        k: Number of clusters (conformers to select).
+        k: Number of conformers to select.
 
     Returns:
-        List of selected conformer IDs (one per cluster).
+        List of selected conformer IDs (length <= k).
     """
     if k >= len(conf_ids):
         return conf_ids
 
-    # Pre-compute SASA radii once (topology-only; same for all conformers).
     radii = rdFreeSASA.classifyAtoms(mol)
-
-    # Build feature matrix
     features = np.array([_build_3d_descriptors(mol, cid, radii) for cid in conf_ids])
 
-    # Scale features for k-means
-    scaler = StandardScaler()
-    features_scaled = scaler.fit_transform(features)
+    # Normalize: zero mean, unit variance (avoid div-by-zero on flat features).
+    mean = features.mean(axis=0)
+    std = features.std(axis=0)
+    std[std == 0.0] = 1.0
+    feat = (features - mean) / std
 
-    # Run k-means
-    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-    cluster_labels = kmeans.fit_predict(features_scaled)
+    energies_arr = np.array(energies)
 
-    # Group conformers by cluster
-    clusters: dict[int, list[int]] = {i: [] for i in range(k)}
-    for idx, label in enumerate(cluster_labels):
-        clusters[label].append(idx)
+    # Seed: lowest-energy conformer.
+    seed = int(np.argmin(energies_arr))
+    selected = [seed]
 
-    # Select lowest-energy conformer from each cluster
-    energies_array = np.array(energies)
-    selected = []
-    for _cluster_id, indices in clusters.items():
-        if not indices:
-            continue
-        cluster_energies = energies_array[indices]
-        best_idx = indices[np.argmin(cluster_energies)]
-        selected.append(conf_ids[best_idx])
+    # min_dist_sq[i] = squared distance from conformer i to nearest selected.
+    # Sentinel -inf marks already-selected slots so argmax never revisits them.
+    diff = feat - feat[seed]
+    min_dist_sq = (diff * diff).sum(axis=1)
+    min_dist_sq[seed] = -np.inf
 
-    return selected
+    for _ in range(k - 1):
+        next_idx = int(np.argmax(min_dist_sq))
+        selected.append(next_idx)
+        diff = feat - feat[next_idx]
+        new_dists = (diff * diff).sum(axis=1)
+        np.minimum(min_dist_sq, new_dists, out=min_dist_sq)
+        min_dist_sq[next_idx] = -np.inf
+
+    return [conf_ids[i] for i in selected]
 
 
 @dataclass
@@ -239,12 +240,9 @@ class ConformerPool:
         # Get current conf_ids
         conf_ids = self.conf_ids
 
-        # Run PRISM dedupe
-        assert self.config.prism_config is not None
         keep_ids = prism_dedupe(
             self.mol,
             conf_ids,
-            self.config.prism_config,
             use_heavy_atoms_only=self.config.use_heavy_atoms_only,
         )
 
@@ -287,8 +285,8 @@ class ConformerPool:
             sorted_pairs = sorted(zip(energies, conf_ids, strict=True))
             return [cid for _, cid in sorted_pairs[: self.config.max_out]]
 
-        # Diverse final selection (k-means clustering on 3D descriptors)
-        return _pick_diverse_by_clustering(
+        # Diverse final selection (greedy MaxMin on shape descriptors)
+        return _pick_diverse_maxmin(
             self.mol,
             conf_ids,
             energies,
@@ -325,57 +323,3 @@ class ConformerPool:
         weights /= weights.sum()
 
         return np.random.choice(conf_ids, p=weights)
-
-    def prune_by_energy(self) -> int:
-        """Remove conformers outside energy window.
-
-        Returns:
-            Number removed.
-        """
-        if not self.records:
-            return 0
-
-        # Update best energy
-        self._best_energy = min(r.energy_kcal or float("inf") for r in self.records.values())
-
-        cutoff = self._best_energy + self.config.energy_window_kcal
-
-        to_remove = [cid for cid, record in self.records.items() if (record.energy_kcal or float("inf")) > cutoff]
-
-        for cid in to_remove:
-            del self.records[cid]
-            self.mol.RemoveConformer(cid)
-
-        self._worst_dirty = True
-        return len(to_remove)
-
-    def get_statistics(self) -> dict[str, Any]:
-        """Get pool statistics.
-
-        Returns:
-            Dictionary of statistics.
-        """
-        if not self.records:
-            return {
-                "size": 0,
-                "best_energy": None,
-                "worst_energy": None,
-                "mean_energy": None,
-            }
-
-        energies = [r.energy_kcal for r in self.records.values() if r.energy_kcal is not None]
-
-        return {
-            "size": self.size,
-            "best_energy": min(energies) if energies else None,
-            "worst_energy": max(energies) if energies else None,
-            "mean_energy": sum(energies) / len(energies) if energies else None,
-            "sources": self._count_sources(),
-        }
-
-    def _count_sources(self) -> dict[str, int]:
-        """Count conformers by source."""
-        counts: dict[str, int] = {}
-        for record in self.records.values():
-            counts[record.source] = counts.get(record.source, 0) + 1
-        return counts

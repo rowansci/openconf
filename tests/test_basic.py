@@ -268,26 +268,18 @@ def test_prism_dedupe():
     """Test that PRISM deduplication works."""
     from rdkit.Chem import AllChem
 
-    from openconf.config import PrismConfig
     from openconf.dedupe import prism_dedupe
 
     mol = Chem.MolFromSmiles("CCCC")
     mol = Chem.AddHs(mol)
 
-    # Generate some conformers
     AllChem.EmbedMultipleConfs(mol, numConfs=50)
-
-    # Minimize all
     for cid in range(mol.GetNumConformers()):
         AllChem.MMFFOptimizeMolecule(mol, confId=cid)
 
     conf_ids = [c.GetId() for c in mol.GetConformers()]
+    keep_ids = prism_dedupe(mol, conf_ids)
 
-    config = PrismConfig()
-
-    keep_ids = prism_dedupe(mol, conf_ids, config)
-
-    # Should significantly reduce the number of conformers
     assert len(keep_ids) > 0
     assert len(keep_ids) < len(conf_ids)
 
@@ -511,6 +503,47 @@ def test_ring_flip_in_generation():
     config = ConformerConfig(max_out=10, n_steps=50, pool_max=100, random_seed=42)
     ens = generate_conformers("C1CCCCC1", config=config)
     assert ens.n_conformers > 0
+
+
+# ---------------------------------------------------------------------------
+# Metal-ligand torsions
+# ---------------------------------------------------------------------------
+
+
+def test_metal_ligand_rotors_included():
+    """Metal-ligand bonds should appear as metal_ligand rotors, not be skipped."""
+    from openconf.perceive import build_rotor_model, prepare_molecule
+
+    # Dimethylzinc: two Zn-C bonds that should be sampled as metal_ligand rotors.
+    mol = prepare_molecule(Chem.MolFromSmiles("[Zn](C)C"), add_hs=True)
+    rm = build_rotor_model(mol)
+    metal_rotors = [r for r in rm.rotors if r.rotor_type == "metal_ligand"]
+    assert len(metal_rotors) == 2
+
+
+def test_metal_ligand_flat_angles():
+    """metal_ligand rotors should get 12 equally-spaced angles, not torsion library angles."""
+    import numpy as np
+    from rdkit.Chem import AllChem
+
+    from openconf.config import ConformerConfig
+    from openconf.perceive import build_rotor_model, prepare_molecule
+    from openconf.propose.hybrid import HybridProposer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles("[Zn](C)C"), add_hs=True)
+    AllChem.EmbedMolecule(mol, randomSeed=0)
+    rm = build_rotor_model(mol)
+
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
+
+    metal_indices = [i for i, r in enumerate(rm.rotors) if r.rotor_type == "metal_ligand"]
+    for idx in metal_indices:
+        angles_arr, weights_arr = proposer._rotor_angles[idx]
+        assert len(angles_arr) == 12
+        assert np.allclose(weights_arr, 1.0 / 12.0)
+        # Equally spaced across [0, 360)
+        assert np.allclose(np.diff(angles_arr), 30.0)
 
 
 if __name__ == "__main__":

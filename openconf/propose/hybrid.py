@@ -112,28 +112,6 @@ def _build_nonbonded_mask(mol: Chem.Mol) -> np.ndarray:
     return mask
 
 
-def _has_clash(mol: Chem.Mol, conf_id: int, threshold: float = 1.5) -> bool:
-    """Check for atomic clashes using vectorized numpy (no Python atom loop).
-
-    Prefer calling the precomputed-mask variant via HybridProposer._check_clash
-    when inside the hot loop — this standalone function recomputes the mask each
-    time and is provided for external / testing use only.
-
-    Args:
-        mol: RDKit molecule.
-        conf_id: Conformer ID to check.
-        threshold: Minimum allowed distance between non-bonded atoms (Angstroms).
-
-    Returns:
-        True if any non-bonded atom pair is closer than threshold.
-    """
-    mask = _build_nonbonded_mask(mol)
-    pos = mol.GetConformer(conf_id).GetPositions()
-    diff = pos[:, None, :] - pos[None, :, :]
-    dist2 = (diff * diff).sum(axis=-1)
-    return bool((dist2[mask] < threshold * threshold).any())
-
-
 class HybridProposer:
     """Hybrid conformer proposal strategy.
 
@@ -182,13 +160,20 @@ class HybridProposer:
         # Pre-compute preferred angles for each rotor.
         # Store as (angles_array, normalized_weights_array) so _sample_angle
         # can use np.random.choice without recomputing the sum on every call.
+        # Metal-ligand bonds use 12 equally-spaced angles (flat distribution)
+        # because their torsional potential is very shallow.
+        _metal_angles = np.linspace(0.0, 360.0, 12, endpoint=False)
+        _metal_weights = np.full(12, 1.0 / 12.0)
         self._rotor_angles: list[tuple[np.ndarray, np.ndarray]] = []
         for rotor in rotor_model.rotors:
-            angles, weights = torsion_lib.get_preferred_angles(mol, rotor.dihedral_atoms)
-            angles_arr = np.array(angles, dtype=np.float64)
-            weights_arr = np.array(weights, dtype=np.float64)
-            weights_arr /= weights_arr.sum()
-            self._rotor_angles.append((angles_arr, weights_arr))
+            if rotor.rotor_type == "metal_ligand":
+                self._rotor_angles.append((_metal_angles, _metal_weights))
+            else:
+                angles, weights = torsion_lib.get_preferred_angles(mol, rotor.dihedral_atoms)
+                angles_arr = np.array(angles, dtype=np.float64)
+                weights_arr = np.array(weights, dtype=np.float64)
+                weights_arr /= weights_arr.sum()
+                self._rotor_angles.append((angles_arr, weights_arr))
 
         # Precompute non-bonded pair mask for fast numpy clash detection.
         self._nonbonded_mask: np.ndarray = _build_nonbonded_mask(mol)
@@ -1085,22 +1070,33 @@ def run_hybrid_generation(
     # Sequential mode (batch_size=1): original one-at-a-time behaviour.
     batch_size = config.minimize_batch_size
     step = 0
+    stagnation = 0
     while step < config.n_steps:
         if batch_size > 1:
             results = proposer.propose_batch(pool, step)
-            step += batch_size
+            step_inc = batch_size
         else:
             result = proposer.propose(pool, step)
             results = [result] if result is not None else []
-            step += 1
+            step_inc = 1
+        step += step_inc
 
+        any_accepted = False
         for conf_id, energy, source in results:
             accepted = pool.insert(conf_id, energy, source=source)
             if accepted:
+                any_accepted = True
                 move_type = source.removeprefix("hybrid_") if source.startswith("hybrid_") else source
                 proposer.record_accepted(conf_id, move_type)
             else:
                 mol.RemoveConformer(conf_id)
+
+        if any_accepted:
+            stagnation = 0
+        else:
+            stagnation += step_inc
+        if config.patience > 0 and stagnation >= config.patience:
+            break
 
         # Periodic dedupe — also the tick where the adaptive scheduler
         # collects survival-based rewards and updates move probabilities.

@@ -1,5 +1,6 @@
 """Main API for openconf conformer generation."""
 
+import dataclasses
 from dataclasses import dataclass
 
 import numpy as np
@@ -40,18 +41,6 @@ class ConformerEnsemble:
     def n_conformers(self) -> int:
         """Number of conformers."""
         return len(self.records)
-
-    def subset(self, indices: list[int]) -> "ConformerEnsemble":
-        """Get a subset of conformers.
-
-        Args:
-            indices: Indices of conformers to keep.
-
-        Returns:
-            New ConformerEnsemble with selected conformers.
-        """
-        new_records = [self.records[i] for i in indices]
-        return ConformerEnsemble(mol=self.mol, records=new_records)
 
     def coords(self, idx: int) -> list[tuple[float, float, float]]:
         """Get coordinates for a conformer by index.
@@ -427,7 +416,7 @@ def generate_conformers_from_pose(
 
     # Resolve config — default to "analogue" preset for this entry point.
     if config is not None:
-        resolved_config = ConformerConfig(**{k: v for k, v in config.__dict__.items() if k != "constraint_spec"})
+        resolved_config = dataclasses.replace(config, constraint_spec=None)
     elif preset is not None:
         resolved_config = preset_config(preset)
     else:
@@ -453,23 +442,3 @@ def generate_conformers_from_pose(
     ]
 
     return ConformerEnsemble(mol=prepped_mol, records=records)
-
-
-def generate_conformers_from_smiles(
-    smiles: str,
-    method: str = "hybrid",
-    config: ConformerConfig | None = None,
-) -> ConformerEnsemble:
-    """Generate conformers from a SMILES string.
-
-    Convenience function that wraps generate_conformers.
-
-    Args:
-        smiles: SMILES string.
-        method: Generation method.
-        config: Configuration options.
-
-    Returns:
-        ConformerEnsemble containing the generated conformers.
-    """
-    return generate_conformers(smiles, method=method, config=config)

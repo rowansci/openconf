@@ -7,8 +7,6 @@ import numpy as np
 from prism_pruner.pruner import prune_by_moment_of_inertia
 from rdkit import Chem
 
-from .config import PrismConfig
-
 
 def _mol_to_arrays(
     mol: Chem.Mol,
@@ -51,7 +49,6 @@ def _mol_to_arrays(
 def prism_dedupe(
     mol: Chem.Mol,
     conf_ids: list[int],
-    config: PrismConfig,
     use_heavy_atoms_only: bool = True,
 ) -> list[int]:
     """Deduplicate conformers using PRISM Pruner.
@@ -59,7 +56,6 @@ def prism_dedupe(
     Args:
         mol: RDKit molecule with conformers.
         conf_ids: List of conformer IDs to process.
-        config: PRISM configuration.
         use_heavy_atoms_only: Use only heavy atoms for comparison.
 
     Returns:
@@ -68,12 +64,6 @@ def prism_dedupe(
     if len(conf_ids) <= 1:
         return conf_ids
 
-    # Convert to arrays
     coords, atoms = _mol_to_arrays(mol, conf_ids, use_heavy_atoms_only)
-
-    # Run PRISM pruning
     _, mask = prune_by_moment_of_inertia(coords, atoms)
-
-    # Convert mask to conf_ids
-    keep_ids = [conf_ids[i] for i in range(len(conf_ids)) if mask[i]]
-    return keep_ids
+    return [conf_ids[i] for i in range(len(conf_ids)) if mask[i]]

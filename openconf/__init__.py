@@ -19,9 +19,8 @@ from .api import (
     ConformerRecord,
     generate_conformers,
     generate_conformers_from_pose,
-    generate_conformers_from_smiles,
 )
-from .config import ConformerConfig, ConformerPreset, ConstraintSpec, PrismConfig, preset_config
+from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_config
 from .dedupe import prism_dedupe
 from .io import mol_to_smiles, read_sdf, smiles_to_mol, write_sdf, write_xyz
 from .perceive import Rotor, RotorModel, build_rotor_model, filter_constrained_rotors, prepare_molecule
@@ -34,7 +33,6 @@ __all__ = [
     "ConformerPreset",
     "ConformerRecord",
     "ConstraintSpec",
-    "PrismConfig",
     "RDKitMMFFMinimizer",
     "Rotor",
     "RotorModel",
@@ -44,7 +42,6 @@ __all__ = [
     "filter_constrained_rotors",
     "generate_conformers",
     "generate_conformers_from_pose",
-    "generate_conformers_from_smiles",
     "get_minimizer",
     "mol_to_smiles",
     "prepare_molecule",

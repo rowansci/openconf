@@ -141,16 +141,6 @@ def _is_metal(atom: Chem.Atom) -> bool:
     return atom.GetAtomicNum() in _METAL_ATOMIC_NUMS
 
 
-# SMARTS patterns for special rotor types
-ROTOR_TYPE_SMARTS = {
-    "amide": "[NX3][CX3](=[OX1])",  # Amide bond (restricted rotation)
-    "ester": "[OX2][CX3](=[OX1])",  # Ester (restricted rotation)
-    "biaryl": "c-c",  # Biaryl linkage
-    "sulfonamide": "[NX3][SX4](=[OX1])(=[OX1])",
-    "urea": "[NX3][CX3](=[OX1])[NX3]",
-}
-
-
 def _get_dihedral_atoms(mol: Chem.Mol, bond_idx: int) -> tuple[int, int, int, int] | None:
     """Get four atoms defining the dihedral for a rotatable bond.
 
@@ -198,6 +188,10 @@ def _classify_rotor(mol: Chem.Mol, bond: Chem.Bond) -> str:
     """
     atom1 = mol.GetAtomWithIdx(bond.GetBeginAtomIdx())
     atom2 = mol.GetAtomWithIdx(bond.GetEndAtomIdx())
+
+    # Metal-ligand bonds have a very shallow torsional potential.
+    if _is_metal(atom1) or _is_metal(atom2):
+        return "metal_ligand"
 
     # Check for aromatic-aromatic (biaryl)
     if atom1.GetIsAromatic() and atom2.GetIsAromatic():
@@ -455,9 +449,10 @@ def build_rotor_model(mol: Chem.Mol) -> RotorModel:
         if bond.IsInRing():
             continue
 
-        # Skip metal-ligand bonds: rotation around M-L bonds is not a
-        # meaningful torsion degree of freedom for coordination chemistry.
-        if _is_metal(mol.GetAtomWithIdx(atom_i)) or _is_metal(mol.GetAtomWithIdx(atom_j)):
+        # Skip metal-metal bonds (M-M bonds in clusters/carbonyls are not
+        # meaningful torsion degrees of freedom). Metal-ligand bonds are kept
+        # and classified as "metal_ligand" rotors with a flat angle distribution.
+        if _is_metal(mol.GetAtomWithIdx(atom_i)) and _is_metal(mol.GetAtomWithIdx(atom_j)):
             continue
 
         # Get dihedral atoms

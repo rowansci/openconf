@@ -24,30 +24,29 @@ def write_sdf(
     """
     writer = Chem.SDWriter(str(output_path))
 
+    # Build a conformer-free template once; adding a single conformer per
+    # iteration is far cheaper than copying all conformers and stripping N-1.
+    mol_base = Chem.Mol(mol)
+    mol_base.RemoveAllConformers()
+
     for i, conf_id in enumerate(conf_ids):
-        # Create a copy with just this conformer
-        mol_copy = Chem.Mol(mol)
+        mol_out = Chem.Mol(mol_base)
+        mol_out.AddConformer(Chem.Conformer(mol.GetConformer(conf_id)), assignId=True)
 
-        # Remove all conformers except this one
-        conf_ids_to_remove = [c.GetId() for c in mol_copy.GetConformers() if c.GetId() != conf_id]
-        for cid in conf_ids_to_remove:
-            mol_copy.RemoveConformer(cid)
-
-        # Add properties
-        mol_copy.SetProp("_Name", f"conf_{conf_id}")
-        mol_copy.SetProp("ConfID", str(conf_id))
+        mol_out.SetProp("_Name", f"conf_{conf_id}")
+        mol_out.SetProp("ConfID", str(conf_id))
 
         if energies is not None:
-            mol_copy.SetProp("Energy_kcal", f"{energies[i]:.4f}")
+            mol_out.SetProp("Energy_kcal", f"{energies[i]:.4f}")
 
         if metadata is not None and conf_id in metadata:
             for key, value in metadata[conf_id].items():
                 if isinstance(value, float):
-                    mol_copy.SetProp(str(key), f"{value:.6f}")
+                    mol_out.SetProp(str(key), f"{value:.6f}")
                 else:
-                    mol_copy.SetProp(str(key), str(value))
+                    mol_out.SetProp(str(key), str(value))
 
-        writer.write(mol_copy, confId=conf_id)
+        writer.write(mol_out)
 
     writer.close()
 
