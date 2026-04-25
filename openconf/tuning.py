@@ -29,6 +29,15 @@ class RuntimeTuningThresholds:
 
 
 @dataclass(frozen=True)
+class RuntimeTuningSeedFloors:
+    """Topology-aware lower bounds for auto-computed seed counts."""
+
+    flexible: int
+    acyclic: int
+    hydrocarbon: int
+
+
+@dataclass(frozen=True)
 class LargeFlexibleRuntimeTuning:
     """Runtime tuning profile for large non-macrocyclic flexible molecules."""
 
@@ -37,6 +46,7 @@ class LargeFlexibleRuntimeTuning:
     tuned: RuntimeTuningDefaults
     prune_thresholds: RuntimeTuningThresholds
     seed_scales: RuntimeTuningThresholds
+    seed_floors: RuntimeTuningSeedFloors
 
 
 @dataclass(frozen=True)
@@ -67,12 +77,24 @@ class ClashCheckTuning:
 
 
 @dataclass(frozen=True)
+class LowFlexSeedBudgetTuning:
+    """Seed-budget cap for simple low-flexibility molecules."""
+
+    enabled: bool
+    max_heavy_atoms: int
+    seed_floor: int
+    seed_per_rotor: int
+    max_seeds: int
+
+
+@dataclass(frozen=True)
 class LowFlexPathTuning:
     """Settings for the ETKDG-only low-flexibility fast path."""
 
     max_rotatable: int
     allow_macrocycles: bool
     allow_rings: bool
+    seed_budget: LowFlexSeedBudgetTuning
 
 
 @dataclass(frozen=True)
@@ -124,6 +146,11 @@ def _load_runtime_tuning() -> RuntimeTuning:
                 acyclic=float(topology_aware["seed_scales"]["acyclic"]),
                 hydrocarbon=float(topology_aware["seed_scales"]["hydrocarbon"]),
             ),
+            seed_floors=RuntimeTuningSeedFloors(
+                flexible=int(topology_aware["seed_floors"]["flexible"]),
+                acyclic=int(topology_aware["seed_floors"]["acyclic"]),
+                hydrocarbon=int(topology_aware["seed_floors"]["hydrocarbon"]),
+            ),
         ),
         macrocycle_seeding=MacrocycleSeedingTuning(
             disable_prune_rms=bool(raw["macrocycle_seeding"]["disable_prune_rms"]),
@@ -144,6 +171,13 @@ def _load_runtime_tuning() -> RuntimeTuning:
             max_rotatable=int(raw["low_flex_path"]["max_rotatable"]),
             allow_macrocycles=bool(raw["low_flex_path"]["allow_macrocycles"]),
             allow_rings=bool(raw["low_flex_path"]["allow_rings"]),
+            seed_budget=LowFlexSeedBudgetTuning(
+                enabled=bool(raw["low_flex_path"]["seed_budget"]["enabled"]),
+                max_heavy_atoms=int(raw["low_flex_path"]["seed_budget"]["max_heavy_atoms"]),
+                seed_floor=int(raw["low_flex_path"]["seed_budget"]["seed_floor"]),
+                seed_per_rotor=int(raw["low_flex_path"]["seed_budget"]["seed_per_rotor"]),
+                max_seeds=int(raw["low_flex_path"]["seed_budget"]["max_seeds"]),
+            ),
         ),
     )
 

@@ -17,7 +17,12 @@ def _energy_or_inf(energy: float | None) -> float:
     return energy if energy is not None else float("inf")
 
 
-def _build_3d_descriptors(mol: Chem.Mol, conf_id: int, radii: object) -> list[float]:
+def _build_3d_descriptors(
+    mol: Chem.Mol,
+    conf_id: int,
+    radii: object,
+    polar_atom_indices: np.ndarray,
+) -> list[float]:
     """Build 3D descriptors for a single conformer without copying the molecule.
 
     Uses SASA, polar SASA, radius of gyration, PBF, NPR1, NPR2.
@@ -27,6 +32,7 @@ def _build_3d_descriptors(mol: Chem.Mol, conf_id: int, radii: object) -> list[fl
         conf_id: RDKit conformer ID.
         radii: Pre-computed SASA radii from rdFreeSASA.classifyAtoms(mol).
             Despite the name, CalcSASA's confIdx parameter accepts a conf_id.
+        polar_atom_indices: Indices of polar heavy atoms for polar SASA sum.
 
     Returns:
         List of 3D descriptor values [sasa, polar_sasa, rog, pbf, npr1, npr2].
@@ -35,7 +41,7 @@ def _build_3d_descriptors(mol: Chem.Mol, conf_id: int, radii: object) -> list[fl
     # Note: rdFreeSASA.CalcSASA's confIdx parameter accepts a conf_id (RDKit ID),
     # not a 0-based index despite the parameter name.
     sasa = rdFreeSASA.CalcSASA(mol, radii, confIdx=conf_id)
-    polar_sasa = sum(float(atom.GetProp("SASA")) for atom in mol.GetAtoms() if atom.GetAtomicNum() not in {1, 6})
+    polar_sasa = sum(float(mol.GetAtomWithIdx(int(idx)).GetProp("SASA")) for idx in polar_atom_indices)
 
     return [
         sasa,
@@ -90,7 +96,11 @@ def _pick_diverse_maxmin(
         return conf_ids
 
     radii = rdFreeSASA.classifyAtoms(mol)
-    features = np.array([_build_3d_descriptors(mol, cid, radii) for cid in conf_ids])
+    polar_atom_indices = np.array(
+        [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() not in {1, 6}],
+        dtype=int,
+    )
+    features = np.array([_build_3d_descriptors(mol, cid, radii, polar_atom_indices) for cid in conf_ids])
 
     # Normalize: zero mean, unit variance (avoid div-by-zero on flat features).
     mean = features.mean(axis=0)

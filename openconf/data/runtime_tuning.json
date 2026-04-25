@@ -23,8 +23,13 @@
       },
       "seed_scales": {
         "flexible": 0.95,
-        "acyclic": 0.85,
-        "hydrocarbon": 0.75
+        "acyclic": 0.75,
+        "hydrocarbon": 0.5
+      },
+      "seed_floors": {
+        "flexible": 20,
+        "acyclic": 16,
+        "hydrocarbon": 12
       }
     }
   },
@@ -62,6 +67,13 @@
   "low_flex_path": {
     "max_rotatable": 3,
     "allow_macrocycles": false,
-    "allow_rings": false
+    "allow_rings": false,
+    "seed_budget": {
+      "enabled": true,
+      "max_heavy_atoms": 30,
+      "seed_floor": 6,
+      "seed_per_rotor": 4,
+      "max_seeds": 12
+    }
   }
 }

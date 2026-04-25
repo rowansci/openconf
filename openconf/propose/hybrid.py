@@ -24,62 +24,27 @@ from ..tuning import (
 )
 from .candidates import CandidateBatchWorkspace, ClashChecker, build_nonbonded_mask
 from .moves import MoveExecutor
-from .stats import new_generation_stats, populate_effective_config_stats
+from .seeding import (
+    SeedPlan,
+    _compute_n_seeds,
+    _is_large_flexible_non_macrocyclic,
+    _resolve_seed_prune_rms_thresh,
+    populate_seed_plan_stats,
+    resolve_seed_plan,
+)
+from .stats import GenerationStat, new_generation_stats, populate_effective_config_stats
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-
-def _is_large_flexible_non_macrocyclic(config: ConformerConfig, rotor_model: RotorModel) -> bool:
-    """Return whether the molecule matches the large-flexible tuning regime."""
-    tuning = get_runtime_tuning()
-    return (
-        config.constraint_spec is None
-        and not rotor_model.ring_info.get("has_macrocycle")
-        and rotor_model.n_rotatable >= tuning.large_flexible.rotatable_threshold
-    )
-
-
-def _count_hetero_heavy_atoms(mol: Chem.Mol) -> int:
-    """Count heavy atoms that are not carbon."""
-    return sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() not in {1, 6})
-
-
-def _resolve_seed_prune_rms_thresh(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> float:
-    """Resolve the ETKDG prune threshold for the current molecule."""
-    tuning = get_runtime_tuning()
-    threshold = config.seed_prune_rms_thresh
-    if rotor_model.ring_info.get("has_macrocycle"):
-        return -1.0
-    if threshold < 0.0 or not bool(config.topology_aware_seed_pruning):
-        return threshold
-    if not _is_large_flexible_non_macrocyclic(config, rotor_model):
-        return threshold
-
-    hetero_heavy = _count_hetero_heavy_atoms(mol)
-    ring_sizes = rotor_model.ring_info["ring_sizes"]
-    if not ring_sizes and hetero_heavy <= 1:
-        return max(threshold, tuning.large_flexible.prune_thresholds.hydrocarbon)
-    if not ring_sizes and hetero_heavy <= 3:
-        return max(threshold, tuning.large_flexible.prune_thresholds.acyclic)
-    return max(threshold, tuning.large_flexible.prune_thresholds.flexible)
-
-
-def _resolve_seed_budget_scale(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> float:
-    """Resolve a topology-aware scale factor for ETKDG seed count."""
-    tuning = get_runtime_tuning()
-    if not bool(config.topology_aware_seed_budget):
-        return 1.0
-    if not _is_large_flexible_non_macrocyclic(config, rotor_model):
-        return 1.0
-
-    hetero_heavy = _count_hetero_heavy_atoms(mol)
-    ring_sizes = rotor_model.ring_info["ring_sizes"]
-    if not ring_sizes and hetero_heavy <= 1:
-        return tuning.large_flexible.seed_scales.hydrocarbon
-    if not ring_sizes and hetero_heavy <= 3:
-        return tuning.large_flexible.seed_scales.acyclic
-    return tuning.large_flexible.seed_scales.flexible
+__all__ = [
+    "HybridProposer",
+    "SeedPlan",
+    "_compute_n_seeds",
+    "resolve_seed_plan",
+    "run_hybrid_generation",
+    "run_low_flex_generation",
+]
 
 
 def _resolve_runtime_tuned_config(config: ConformerConfig, rotor_model: RotorModel) -> tuple[ConformerConfig, bool]:
@@ -107,30 +72,6 @@ def _resolve_runtime_tuned_config(config: ConformerConfig, rotor_model: RotorMod
     if not overrides:
         return config, False
     return dataclasses.replace(config, **overrides), True
-
-
-def _compute_n_seeds(rotor_model: RotorModel, n_per_rotor: int = 3) -> int:
-    """Compute an appropriate seed count based on molecular complexity.
-
-    Formula: base of n_per_rotor seeds per rotatable bond (min 20), plus 5 seeds
-    per non-aromatic ring that can flip, plus ring_size × 10 seeds per macrocycle
-    (the low-energy pucker fraction drops rapidly with ring size, so dense
-    seeding is the cheapest way to ensure the global basin is found). Capped at
-    500.
-
-    Args:
-        rotor_model: Rotor model for the molecule.
-        n_per_rotor: Seeds per rotatable bond.
-
-    Returns:
-        Recommended number of seed conformers.
-    """
-    base = max(20, rotor_model.n_rotatable * n_per_rotor)
-    ring_bonus = len(rotor_model.ring_flips) * 5
-    # Low-energy pucker fraction drops super-linearly with ring size, so the
-    # seed budget scales with s**2; the 500-seed cap keeps the cost bounded.
-    macro_bonus = sum(s * s for s in rotor_model.ring_info["ring_sizes"] if s >= 10)
-    return min(500, base + ring_bonus + macro_bonus)
 
 
 def _copy_conformer(mol: Chem.Mol, source_conf_id: int) -> int:
@@ -165,7 +106,7 @@ class HybridProposer:
         torsion_lib: TorsionLibrary,
         config: ConformerConfig,
         constraint_spec: ConstraintSpec | None = None,
-        stats: dict[str, float | int] | None = None,
+        stats: dict[str, GenerationStat] | None = None,
     ):
         """Initialize the hybrid proposer.
 
@@ -259,11 +200,12 @@ class HybridProposer:
         if self.stats is not None:
             self.stats[key] = float(self.stats.get(key, 0.0)) + elapsed_s
 
-    def generate_seeds(self, n_seeds: int) -> list[tuple[int, float]]:
+    def generate_seeds(self, n_seeds: int, prune_rms_thresh: float | None = None) -> list[tuple[int, float]]:
         """Generate seed conformers using ETKDG, then fast-minimize in batch.
 
         Args:
             n_seeds: Number of seed conformers to generate.
+            prune_rms_thresh: Optional pre-resolved ETKDG prune threshold.
 
         Returns:
             List of (conf_id, energy_kcal) tuples for successfully embedded seeds.
@@ -271,7 +213,11 @@ class HybridProposer:
         params = AllChem.ETKDGv3()
         params.randomSeed = self.config.random_seed or -1
         params.numThreads = int(self.config.num_threads or 0)
-        params.pruneRmsThresh = _resolve_seed_prune_rms_thresh(self.mol, self.rotor_model, self.config)
+        params.pruneRmsThresh = (
+            prune_rms_thresh
+            if prune_rms_thresh is not None
+            else _resolve_seed_prune_rms_thresh(self.mol, self.rotor_model, self.config)
+        )
 
         # Enable ring-aware sampling based on what's in the molecule.
         # useSmallRingTorsions: crystallography-derived preferences for 3-7-membered rings.
@@ -685,17 +631,18 @@ class HybridProposer:
         staging_start = time.perf_counter()
         batch = CandidateBatchWorkspace.from_candidates(self.mol, self._staging_mol, candidates)
         self._add_time_stat("batch_staging_time_s", time.perf_counter() - staging_start)
+        stage_ids = batch.stage_ids
 
         # 2. Minimize staging conformers using pre-prepared props (includes fast_dielectric).
         nthreads = int(self.config.num_threads or 0)
         max_its = int(self.fast_minimizer.max_iters)
-        self._increment_stat("n_minimization_calls", len(batch.stage_ids))
+        self._increment_stat("n_minimization_calls", len(stage_ids))
         minimize_start = time.perf_counter()
         if self._staging_mmff_props is not None:
             energies = minimize_confs_mmff(
                 self._staging_mol,
                 self._staging_mmff_props,
-                batch.stage_ids,
+                stage_ids,
                 max_its,
                 nthreads,
             )
@@ -705,7 +652,7 @@ class HybridProposer:
                 float(ff.CalcEnergy())
                 if (ff := AllChem.UFFGetMoleculeForceField(self._staging_mol, confId=stage_id))
                 else float("inf")
-                for stage_id in batch.stage_ids
+                for stage_id in stage_ids
             ]
         self._add_time_stat("minimization_time_s", time.perf_counter() - minimize_start)
         commit_start = time.perf_counter()
@@ -820,7 +767,7 @@ def run_hybrid_generation(
     rotor_model: RotorModel,
     config: ConformerConfig,
     torsion_library: TorsionLibrary | None = None,
-) -> tuple[Chem.Mol, list[int], list[float], dict[str, float | int]]:
+) -> tuple[Chem.Mol, list[int], list[float], dict[str, GenerationStat]]:
     """Run hybrid conformer generation.
 
     Args:
@@ -842,12 +789,25 @@ def run_hybrid_generation(
         rotor_model = filter_constrained_rotors(rotor_model, constraint_spec.constrained_atoms)
 
     effective_config, tuned_defaults_applied = _resolve_runtime_tuned_config(config, rotor_model)
+    seed_plan = (
+        SeedPlan(
+            n_seeds=1,
+            base_n_seeds=1,
+            budget_scale=1.0,
+            budget_floor=1,
+            prune_rms_thresh=_resolve_seed_prune_rms_thresh(mol, rotor_model, effective_config),
+            reason="seed_pose",
+        )
+        if constraint_spec is not None
+        else resolve_seed_plan(mol, rotor_model, effective_config)
+    )
     populate_effective_config_stats(
         stats,
         config=effective_config,
         tuned_defaults_applied=tuned_defaults_applied,
-        seed_prune_rms_thresh=_resolve_seed_prune_rms_thresh(mol, rotor_model, effective_config),
+        seed_prune_rms_thresh=seed_plan.prune_rms_thresh,
     )
+    populate_seed_plan_stats(stats, seed_plan)
 
     torsion_lib = torsion_library if torsion_library is not None else get_default_torsion_library()
     proposer = HybridProposer(
@@ -866,23 +826,10 @@ def run_hybrid_generation(
             )
         seeds = proposer.seed_from_conformer(existing_ids[0])
         seed_source = "seed_pose"
-        if stats:
-            stats["requested_n_seeds"] = 1
     else:
         # Standard mode: ETKDG seeding.
-        n_seeds = (
-            effective_config.n_seeds
-            if effective_config.n_seeds is not None
-            else _compute_n_seeds(rotor_model, effective_config.seed_n_per_rotor)
-        )
-        seed_budget_scale = _resolve_seed_budget_scale(mol, rotor_model, effective_config)
-        if effective_config.n_seeds is None and seed_budget_scale != 1.0:
-            n_seeds = max(20, round(n_seeds * seed_budget_scale))
-        seeds = proposer.generate_seeds(n_seeds)
+        seeds = proposer.generate_seeds(seed_plan.n_seeds, prune_rms_thresh=seed_plan.prune_rms_thresh)
         seed_source = "seed_etkdg"
-        if stats:
-            stats["requested_n_seeds"] = n_seeds
-            stats["effective_seed_budget_scale"] = seed_budget_scale
     if stats:
         stats["seed_time_s"] = time.perf_counter() - seed_start
         stats["n_seed_conformers"] = len(seeds)
@@ -993,7 +940,7 @@ def run_low_flex_generation(
     rotor_model: RotorModel,
     config: ConformerConfig,
     torsion_library: TorsionLibrary | None = None,
-) -> tuple[Chem.Mol, list[int], list[float], dict[str, float | int]]:
+) -> tuple[Chem.Mol, list[int], list[float], dict[str, GenerationStat]]:
     """Run the ETKDG-only low-flexibility fast path.
 
     This path is intended for simple unconstrained molecules where torsional
@@ -1012,27 +959,23 @@ def run_low_flex_generation(
     """
     total_start = time.perf_counter()
     stats = new_generation_stats() if config.collect_stats else {}
+    seed_plan = resolve_seed_plan(mol, rotor_model, config)
 
     populate_effective_config_stats(
         stats,
         config=config,
         tuned_defaults_applied=False,
-        seed_prune_rms_thresh=_resolve_seed_prune_rms_thresh(mol, rotor_model, config),
+        seed_prune_rms_thresh=seed_plan.prune_rms_thresh,
     )
+    populate_seed_plan_stats(stats, seed_plan)
 
     torsion_lib = torsion_library if torsion_library is not None else get_default_torsion_library()
     proposer = HybridProposer(mol, rotor_model, torsion_lib, config, stats=stats or None)
     pool = ConformerPool(mol, config)
 
     seed_start = time.perf_counter()
-    n_seeds = config.n_seeds if config.n_seeds is not None else _compute_n_seeds(rotor_model, config.seed_n_per_rotor)
-    seed_budget_scale = _resolve_seed_budget_scale(mol, rotor_model, config)
-    if config.n_seeds is None and seed_budget_scale != 1.0:
-        n_seeds = max(20, round(n_seeds * seed_budget_scale))
-    seeds = proposer.generate_seeds(n_seeds)
+    seeds = proposer.generate_seeds(seed_plan.n_seeds, prune_rms_thresh=seed_plan.prune_rms_thresh)
     if stats:
-        stats["requested_n_seeds"] = n_seeds
-        stats["effective_seed_budget_scale"] = seed_budget_scale
         stats["seed_time_s"] = time.perf_counter() - seed_start
         stats["n_seed_conformers"] = len(seeds)
 

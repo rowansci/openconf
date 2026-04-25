@@ -451,7 +451,11 @@ def test_large_flexible_defaults_are_topology_tuned():
     assert int(ensemble.generation_stats["effective_seed_n_per_rotor"]) == 2
     assert float(ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == 1.75
     assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
-    assert float(ensemble.generation_stats["effective_seed_budget_scale"]) == 0.75
+    assert float(ensemble.generation_stats["effective_seed_budget_scale"]) == 0.5
+    assert int(ensemble.generation_stats["effective_seed_budget_floor"]) == 12
+    assert int(ensemble.generation_stats["requested_n_seeds"]) < int(
+        ensemble.generation_stats["seed_plan_base_n_seeds"]
+    )
     assert int(ensemble.generation_stats["effective_dedupe_period"]) == 100
     assert int(ensemble.generation_stats["effective_minimize_batch_size"]) == 16
 
@@ -468,6 +472,7 @@ def test_macrocycles_do_not_use_large_flexible_tuning():
     assert float(ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == -1.0
     assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
     assert float(ensemble.generation_stats["effective_seed_budget_scale"]) == 1.0
+    assert int(ensemble.generation_stats["effective_seed_budget_floor"]) == 20
     assert int(ensemble.generation_stats["effective_dedupe_period"]) == 50
     assert int(ensemble.generation_stats["effective_minimize_batch_size"]) == 8
 
@@ -494,6 +499,7 @@ def test_large_flexible_tuning_respects_overrides_and_opt_out():
     assert float(overridden_ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == 1.0
     assert int(overridden_ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
     assert float(overridden_ensemble.generation_stats["effective_seed_budget_scale"]) == 1.0
+    assert int(overridden_ensemble.generation_stats["effective_seed_budget_floor"]) == 20
     assert int(overridden_ensemble.generation_stats["effective_dedupe_period"]) == 25
     assert int(overridden_ensemble.generation_stats["effective_minimize_batch_size"]) == 4
 
@@ -511,6 +517,7 @@ def test_large_flexible_tuning_respects_overrides_and_opt_out():
     assert float(opt_out_ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == 1.0
     assert int(opt_out_ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
     assert float(opt_out_ensemble.generation_stats["effective_seed_budget_scale"]) == 1.0
+    assert int(opt_out_ensemble.generation_stats["effective_seed_budget_floor"]) == 20
     assert int(opt_out_ensemble.generation_stats["effective_dedupe_period"]) == 50
     assert int(opt_out_ensemble.generation_stats["effective_minimize_batch_size"]) == 8
 
@@ -763,19 +770,38 @@ def test_n_seeds_none_runs():
     """n_seeds=None (default) triggers auto-computation without error."""
     from openconf import ConformerConfig, generate_conformers
 
-    config = ConformerConfig(max_out=5, n_steps=20, pool_max=50)
+    config = ConformerConfig(max_out=5, n_steps=20, pool_max=50, collect_stats=True)
     assert config.n_seeds is None
     ens = generate_conformers("CCCC", config=config)
     assert ens.n_conformers > 0
+    assert ens.generation_stats["seed_plan_reason"] == "low_flex_acyclic"
+    assert int(ens.generation_stats["requested_n_seeds"]) < int(ens.generation_stats["seed_plan_base_n_seeds"])
 
 
 def test_n_seeds_explicit_overrides_auto():
     """An explicit n_seeds value is respected as-is."""
     from openconf import ConformerConfig, generate_conformers
 
-    config = ConformerConfig(n_seeds=7, max_out=5, n_steps=10, pool_max=30, random_seed=1)
+    config = ConformerConfig(n_seeds=7, max_out=5, n_steps=10, pool_max=30, random_seed=1, collect_stats=True)
     ens = generate_conformers("CCCC", config=config)
     assert ens.n_conformers > 0
+    assert ens.generation_stats["seed_plan_reason"] == "explicit"
+    assert int(ens.generation_stats["requested_n_seeds"]) == 7
+
+
+def test_resolve_seed_plan_preserves_macrocycle_budget():
+    """Macrocycles keep dense seed budgets for ring-pucker discovery."""
+    from openconf import ConformerConfig
+    from openconf.perceive import build_rotor_model, prepare_molecule
+    from openconf.propose.hybrid import resolve_seed_plan
+
+    mol = prepare_molecule(Chem.MolFromSmiles("C1CCCCCCCCCCC1"))
+    rotor_model = build_rotor_model(mol)
+    seed_plan = resolve_seed_plan(mol, rotor_model, ConformerConfig(max_out=5))
+
+    assert seed_plan.reason == "auto"
+    assert seed_plan.n_seeds == seed_plan.base_n_seeds
+    assert seed_plan.n_seeds > 100
 
 
 # ---------------------------------------------------------------------------

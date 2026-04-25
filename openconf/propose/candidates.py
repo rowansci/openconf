@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from rdkit import Chem
@@ -37,6 +37,12 @@ class ClashChecker:
     mol: Chem.Mol
     nonbonded_mask: np.ndarray
     clash_threshold2: float
+    _pair_i: np.ndarray = field(init=False, repr=False)
+    _pair_j: np.ndarray = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Cache non-bonded pair indices for repeated clash checks."""
+        self._pair_i, self._pair_j = np.nonzero(self.nonbonded_mask)
 
     def has_clash(
         self,
@@ -49,9 +55,9 @@ class ClashChecker:
             return False
 
         pos = self.mol.GetConformer(conf_id).GetPositions()
-        diff = pos[:, None, :] - pos[None, :, :]
-        dist2 = (diff * diff).sum(axis=-1)
-        return bool((dist2[self.nonbonded_mask] < self.clash_threshold2).any())
+        diff = pos[self._pair_i] - pos[self._pair_j]
+        dist2 = (diff * diff).sum(axis=1)
+        return bool((dist2 < self.clash_threshold2).any())
 
 
 @dataclass(frozen=True)

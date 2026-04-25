@@ -7,16 +7,21 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..config import ConformerConfig
 
+GenerationStat = float | int | str
 
-def new_generation_stats() -> dict[str, float | int]:
+
+def new_generation_stats() -> dict[str, GenerationStat]:
     """Create an empty generation-stats mapping."""
     return {
         "topology_tuned_defaults_applied": 0,
+        "seed_plan_reason": "",
+        "seed_plan_base_n_seeds": 0,
         "requested_n_seeds": 0,
         "effective_seed_n_per_rotor": 0,
         "effective_seed_prune_rms_thresh": 0.0,
         "effective_seed_minimization_iters": 0,
         "effective_seed_budget_scale": 1.0,
+        "effective_seed_budget_floor": 20,
         "effective_dedupe_period": 0,
         "effective_minimize_batch_size": 0,
         "n_seed_conformers": 0,
@@ -51,7 +56,7 @@ def new_generation_stats() -> dict[str, float | int]:
 
 
 def populate_effective_config_stats(
-    stats: dict[str, float | int],
+    stats: dict[str, GenerationStat],
     *,
     config: ConformerConfig,
     tuned_defaults_applied: bool,

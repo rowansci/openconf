@@ -395,6 +395,8 @@ ensemble = generate_conformers_from_pose(mol, constrained_atoms=ring_atoms, conf
 
 Generates initial conformers using RDKit's ETKDGv3 algorithm. The seed count is computed automatically from molecular topology. For molecules with small non-aromatic rings, ETKDGv3's `useSmallRingTorsions` is enabled; for macrocycles (rings ≥ 10 atoms), `useMacrocycleTorsions` is enabled, applying crystallography-derived distance bounds for better ring-closure geometries.
 
+When `n_seeds=None`, openconf resolves a seed plan before embedding. Explicit `n_seeds` values are always honored. Macrocycles keep dense topology-derived seed budgets for ring-pucker discovery, while simple low-flexibility acyclic molecules and large flexible hydrocarbons use data-backed reduced budgets to avoid redundant RDKit embeddings.
+
 ### 2. Hybrid Exploration
 
 The default "hybrid" strategy combines:

@@ -10,6 +10,7 @@ from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_con
 from .perceive import build_rotor_model, prepare_molecule
 from .pool import ConformerRecord
 from .propose.hybrid import run_hybrid_generation, run_low_flex_generation
+from .propose.stats import GenerationStat
 from .torsionlib import TorsionLibrary
 from .tuning import get_runtime_tuning
 
@@ -30,7 +31,7 @@ class ConformerEnsemble:
 
     mol: Chem.Mol
     records: list[ConformerRecord]
-    generation_stats: dict[str, float | int] = field(default_factory=dict)
+    generation_stats: dict[str, GenerationStat] = field(default_factory=dict)
 
     @property
     def conf_ids(self) -> list[int]:
