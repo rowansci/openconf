@@ -186,3 +186,5 @@ static/iridium/*
 scripts/
 benchmarks/
 GDB20*
+
+docs/

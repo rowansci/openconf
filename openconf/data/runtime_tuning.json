@@ -1,0 +1,67 @@
+{
+  "large_flexible": {
+    "rotatable_threshold": 12,
+    "defaults": {
+      "seed_n_per_rotor": 3,
+      "dedupe_period": 50,
+      "minimize_batch_size": 8,
+      "topology_aware_seed_pruning": null,
+      "topology_aware_seed_budget": null
+    },
+    "tuned": {
+      "seed_n_per_rotor": 2,
+      "dedupe_period": 100,
+      "minimize_batch_size": 16,
+      "topology_aware_seed_pruning": true,
+      "topology_aware_seed_budget": true
+    },
+    "topology_aware": {
+      "prune_thresholds": {
+        "flexible": 1.25,
+        "acyclic": 1.5,
+        "hydrocarbon": 1.75
+      },
+      "seed_scales": {
+        "flexible": 0.95,
+        "acyclic": 0.85,
+        "hydrocarbon": 0.75
+      }
+    }
+  },
+  "macrocycle_seeding": {
+    "disable_prune_rms": true,
+    "use_macrocycle_torsions": true,
+    "use_basic_knowledge": true
+  },
+  "move_scheduling": {
+    "default_move_probs": {
+      "single_rotor": 0.3,
+      "multi_rotor": 0.24,
+      "correlated": 0.16,
+      "global_shake": 0.08,
+      "ring_flip": 0.1,
+      "crankshaft": 0.12
+    },
+    "forced_periodic_move": "global_shake",
+    "constrained_fallback_move": "single_rotor",
+    "constrained_disabled_moves": [
+      "global_shake",
+      "crankshaft"
+    ],
+    "availability_fallbacks": {
+      "ring_flip": "single_rotor",
+      "crankshaft": "single_rotor"
+    }
+  },
+  "clash_check": {
+    "exempt_moves": [
+      "ring_flip",
+      "crankshaft"
+    ]
+  },
+  "low_flex_path": {
+    "max_rotatable": 3,
+    "allow_macrocycles": false,
+    "allow_rings": false
+  }
+}

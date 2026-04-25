@@ -6,78 +6,37 @@ Combines torsion library biasing with MCMM-style exploration.
 import dataclasses
 import random
 import time
+from typing import TYPE_CHECKING
 
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolTransforms
+from rdkit.Chem import AllChem
 
 from ..config import ConformerConfig, ConstraintSpec
 from ..perceive import RotorModel, filter_constrained_rotors
 from ..pool import ConformerPool
 from ..relax import get_minimizer, minimize_confs_mmff
-from ..torsionlib import TorsionLibrary
+from ..torsionlib import TorsionLibrary, get_default_torsion_library
+from ..tuning import (
+    get_runtime_tuning,
+    resolve_forced_move,
+    resolve_move_probabilities,
+)
+from .candidates import CandidateBatchWorkspace, ClashChecker, build_nonbonded_mask
+from .moves import MoveExecutor
+from .stats import new_generation_stats, populate_effective_config_stats
 
-_LARGE_FLEXIBLE_ROTATABLE_THRESHOLD = 12
-_DEFAULT_SEED_N_PER_ROTOR = 3
-_DEFAULT_DEDUPE_PERIOD = 50
-_DEFAULT_MINIMIZE_BATCH_SIZE = 8
-_DEFAULT_TOPOLOGY_AWARE_SEED_PRUNING: bool | None = None
-_DEFAULT_TOPOLOGY_AWARE_SEED_BUDGET: bool | None = None
-_TUNED_SEED_N_PER_ROTOR = 2
-_TUNED_DEDUPE_PERIOD = 100
-_TUNED_MINIMIZE_BATCH_SIZE = 16
-_TUNED_TOPOLOGY_AWARE_SEED_PRUNING = True
-_TUNED_TOPOLOGY_AWARE_SEED_BUDGET = True
-_TOPOLOGY_AWARE_PRUNE_THRESH_FLEXIBLE = 1.25
-_TOPOLOGY_AWARE_PRUNE_THRESH_ACYCLIC = 1.5
-_TOPOLOGY_AWARE_PRUNE_THRESH_HYDROCARBON = 1.75
-_TOPOLOGY_AWARE_SEED_SCALE_FLEXIBLE = 0.95
-_TOPOLOGY_AWARE_SEED_SCALE_ACYCLIC = 0.85
-_TOPOLOGY_AWARE_SEED_SCALE_HYDROCARBON = 0.75
-
-
-def _new_generation_stats() -> dict[str, float | int]:
-    """Create an empty generation-stats mapping."""
-    return {
-        "topology_tuned_defaults_applied": 0,
-        "requested_n_seeds": 0,
-        "effective_seed_n_per_rotor": 0,
-        "effective_seed_prune_rms_thresh": 0.0,
-        "effective_seed_minimization_iters": 0,
-        "effective_seed_budget_scale": 1.0,
-        "effective_dedupe_period": 0,
-        "effective_minimize_batch_size": 0,
-        "n_seed_conformers": 0,
-        "n_steps_executed": 0,
-        "n_batches": 0,
-        "n_candidate_attempts": 0,
-        "n_candidates_passed_clash": 0,
-        "n_clash_rejections": 0,
-        "n_minimization_calls": 0,
-        "n_minimization_failures": 0,
-        "n_pool_accepts": 0,
-        "n_pool_rejections": 0,
-        "n_dedupe_calls": 0,
-        "n_dedupe_removed": 0,
-        "n_final_selected": 0,
-        "seed_time_s": 0.0,
-        "seed_embedding_time_s": 0.0,
-        "seed_minimization_time_s": 0.0,
-        "proposal_stage_time_s": 0.0,
-        "minimization_time_s": 0.0,
-        "dedupe_time_s": 0.0,
-        "final_selection_time_s": 0.0,
-        "final_refine_time_s": 0.0,
-        "total_time_s": 0.0,
-    }
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _is_large_flexible_non_macrocyclic(config: ConformerConfig, rotor_model: RotorModel) -> bool:
     """Return whether the molecule matches the large-flexible tuning regime."""
+    tuning = get_runtime_tuning()
     return (
         config.constraint_spec is None
         and not rotor_model.ring_info.get("has_macrocycle")
-        and rotor_model.n_rotatable >= _LARGE_FLEXIBLE_ROTATABLE_THRESHOLD
+        and rotor_model.n_rotatable >= tuning.large_flexible.rotatable_threshold
     )
 
 
@@ -88,6 +47,7 @@ def _count_hetero_heavy_atoms(mol: Chem.Mol) -> int:
 
 def _resolve_seed_prune_rms_thresh(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> float:
     """Resolve the ETKDG prune threshold for the current molecule."""
+    tuning = get_runtime_tuning()
     threshold = config.seed_prune_rms_thresh
     if rotor_model.ring_info.get("has_macrocycle"):
         return -1.0
@@ -99,14 +59,15 @@ def _resolve_seed_prune_rms_thresh(mol: Chem.Mol, rotor_model: RotorModel, confi
     hetero_heavy = _count_hetero_heavy_atoms(mol)
     ring_sizes = rotor_model.ring_info["ring_sizes"]
     if not ring_sizes and hetero_heavy <= 1:
-        return max(threshold, _TOPOLOGY_AWARE_PRUNE_THRESH_HYDROCARBON)
+        return max(threshold, tuning.large_flexible.prune_thresholds.hydrocarbon)
     if not ring_sizes and hetero_heavy <= 3:
-        return max(threshold, _TOPOLOGY_AWARE_PRUNE_THRESH_ACYCLIC)
-    return max(threshold, _TOPOLOGY_AWARE_PRUNE_THRESH_FLEXIBLE)
+        return max(threshold, tuning.large_flexible.prune_thresholds.acyclic)
+    return max(threshold, tuning.large_flexible.prune_thresholds.flexible)
 
 
 def _resolve_seed_budget_scale(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> float:
     """Resolve a topology-aware scale factor for ETKDG seed count."""
+    tuning = get_runtime_tuning()
     if not bool(config.topology_aware_seed_budget):
         return 1.0
     if not _is_large_flexible_non_macrocyclic(config, rotor_model):
@@ -115,30 +76,33 @@ def _resolve_seed_budget_scale(mol: Chem.Mol, rotor_model: RotorModel, config: C
     hetero_heavy = _count_hetero_heavy_atoms(mol)
     ring_sizes = rotor_model.ring_info["ring_sizes"]
     if not ring_sizes and hetero_heavy <= 1:
-        return _TOPOLOGY_AWARE_SEED_SCALE_HYDROCARBON
+        return tuning.large_flexible.seed_scales.hydrocarbon
     if not ring_sizes and hetero_heavy <= 3:
-        return _TOPOLOGY_AWARE_SEED_SCALE_ACYCLIC
-    return _TOPOLOGY_AWARE_SEED_SCALE_FLEXIBLE
+        return tuning.large_flexible.seed_scales.acyclic
+    return tuning.large_flexible.seed_scales.flexible
 
 
 def _resolve_runtime_tuned_config(config: ConformerConfig, rotor_model: RotorModel) -> tuple[ConformerConfig, bool]:
     """Adjust default-equivalent runtime knobs for large flexible molecules."""
+    tuning = get_runtime_tuning()
+    defaults = tuning.large_flexible.defaults
+    tuned = tuning.large_flexible.tuned
     if not config.auto_tune_large_flexible:
         return config, False
     if not _is_large_flexible_non_macrocyclic(config, rotor_model):
         return config, False
 
-    overrides: dict[str, int | bool] = {}
-    if config.n_seeds is None and config.seed_n_per_rotor == _DEFAULT_SEED_N_PER_ROTOR:
-        overrides["seed_n_per_rotor"] = _TUNED_SEED_N_PER_ROTOR
-    if config.dedupe_period == _DEFAULT_DEDUPE_PERIOD:
-        overrides["dedupe_period"] = _TUNED_DEDUPE_PERIOD
-    if config.minimize_batch_size == _DEFAULT_MINIMIZE_BATCH_SIZE and config.num_threads != 1:
-        overrides["minimize_batch_size"] = _TUNED_MINIMIZE_BATCH_SIZE
-    if config.topology_aware_seed_pruning is _DEFAULT_TOPOLOGY_AWARE_SEED_PRUNING:
-        overrides["topology_aware_seed_pruning"] = _TUNED_TOPOLOGY_AWARE_SEED_PRUNING
-    if config.topology_aware_seed_budget is _DEFAULT_TOPOLOGY_AWARE_SEED_BUDGET:
-        overrides["topology_aware_seed_budget"] = _TUNED_TOPOLOGY_AWARE_SEED_BUDGET
+    overrides: dict[str, int | bool | None] = {}
+    if config.n_seeds is None and config.seed_n_per_rotor == defaults.seed_n_per_rotor:
+        overrides["seed_n_per_rotor"] = tuned.seed_n_per_rotor
+    if config.dedupe_period == defaults.dedupe_period:
+        overrides["dedupe_period"] = tuned.dedupe_period
+    if config.minimize_batch_size == defaults.minimize_batch_size and config.num_threads != 1:
+        overrides["minimize_batch_size"] = tuned.minimize_batch_size
+    if config.topology_aware_seed_pruning is defaults.topology_aware_seed_pruning:
+        overrides["topology_aware_seed_pruning"] = tuned.topology_aware_seed_pruning
+    if config.topology_aware_seed_budget is defaults.topology_aware_seed_budget:
+        overrides["topology_aware_seed_budget"] = tuned.topology_aware_seed_budget
 
     if not overrides:
         return config, False
@@ -169,34 +133,6 @@ def _compute_n_seeds(rotor_model: RotorModel, n_per_rotor: int = 3) -> int:
     return min(500, base + ring_bonus + macro_bonus)
 
 
-def _set_dihedral(mol: Chem.Mol, conf_id: int, atoms: tuple[int, int, int, int], angle_deg: float) -> None:
-    """Set a dihedral angle in a conformer.
-
-    Args:
-        mol: RDKit molecule.
-        conf_id: Conformer ID.
-        atoms: Four atom indices defining the dihedral.
-        angle_deg: Target angle in degrees.
-    """
-    conf = mol.GetConformer(conf_id)
-    rdMolTransforms.SetDihedralDeg(conf, atoms[0], atoms[1], atoms[2], atoms[3], angle_deg)
-
-
-def _get_dihedral(mol: Chem.Mol, conf_id: int, atoms: tuple[int, int, int, int]) -> float:
-    """Get a dihedral angle from a conformer.
-
-    Args:
-        mol: RDKit molecule.
-        conf_id: Conformer ID.
-        atoms: Four atom indices defining the dihedral.
-
-    Returns:
-        Angle in degrees.
-    """
-    conf = mol.GetConformer(conf_id)
-    return rdMolTransforms.GetDihedralDeg(conf, atoms[0], atoms[1], atoms[2], atoms[3])
-
-
 def _copy_conformer(mol: Chem.Mol, source_conf_id: int) -> int:
     """Copy a conformer and return the new ID.
 
@@ -210,35 +146,6 @@ def _copy_conformer(mol: Chem.Mol, source_conf_id: int) -> int:
     source_conf = mol.GetConformer(int(source_conf_id))
     new_conf = Chem.Conformer(source_conf)
     return mol.AddConformer(new_conf, assignId=True)
-
-
-def _build_nonbonded_mask(mol: Chem.Mol) -> np.ndarray:
-    """Build a boolean mask of non-bonded, non-1-3 atom pairs (upper triangle).
-
-    Args:
-        mol: RDKit molecule.
-
-    Returns:
-        Boolean array of shape (n_atoms, n_atoms) where True means the pair
-        should be checked for clashes (not bonded and not a 1-3 angle pair).
-    """
-    n = mol.GetNumAtoms()
-    mask = np.ones((n, n), dtype=bool)
-    np.fill_diagonal(mask, False)
-    for bond in mol.GetBonds():
-        i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-        mask[i, j] = mask[j, i] = False
-        for nb in mol.GetAtomWithIdx(i).GetNeighbors():
-            k = nb.GetIdx()
-            if k != j:
-                mask[j, k] = mask[k, j] = False
-        for nb in mol.GetAtomWithIdx(j).GetNeighbors():
-            k = nb.GetIdx()
-            if k != i:
-                mask[i, k] = mask[k, i] = False
-    # Keep only upper triangle to avoid double-counting
-    mask &= np.triu(np.ones((n, n), dtype=bool), k=1)
-    return mask
 
 
 class HybridProposer:
@@ -289,46 +196,15 @@ class HybridProposer:
         self.fast_minimizer.prepare(mol)
         self.full_minimizer.prepare(mol)
 
-        # Pre-compute preferred angles for each rotor.
-        # Store as (angles_array, normalized_weights_array) so _sample_angle
-        # can use np.random.choice without recomputing the sum on every call.
-        # Metal-ligand bonds use 12 equally-spaced angles (flat distribution)
-        # because their torsional potential is very shallow.
-        _metal_angles = np.linspace(0.0, 360.0, 12, endpoint=False)
-        _metal_weights = np.full(12, 1.0 / 12.0)
-        self._rotor_angles: list[tuple[np.ndarray, np.ndarray]] = []
-        for rotor in rotor_model.rotors:
-            if rotor.rotor_type == "metal_ligand":
-                self._rotor_angles.append((_metal_angles, _metal_weights))
-            else:
-                angles, weights = torsion_lib.get_preferred_angles(mol, rotor.dihedral_atoms)
-                angles_arr = np.array(angles, dtype=np.float64)
-                weights_arr = np.array(weights, dtype=np.float64)
-                weights_arr /= weights_arr.sum()
-                self._rotor_angles.append((angles_arr, weights_arr))
+        self._moves = MoveExecutor(mol, rotor_model, torsion_lib, config)
+        self._rotor_angles = self._moves._rotor_angles
+        self._correlated_rotor_indices = self._moves.correlated_rotor_indices
+        self._crankable_rings = self._moves.crankable_rings
 
         # Precompute non-bonded pair mask for fast numpy clash detection.
-        self._nonbonded_mask: np.ndarray = _build_nonbonded_mask(mol)
+        self._nonbonded_mask: np.ndarray = build_nonbonded_mask(mol)
         self._clash_threshold2: float = config.clash_threshold**2
-
-        # Precompute crankshaft data: for each non-aromatic ring of size >= 6,
-        # store the ordered ring atom indices and the substituent-atom subtree
-        # for each ring position (atoms that should rotate with that ring atom,
-        # excluding other same-ring atoms). Rings containing metals are skipped.
-        self._crankable_rings: list[tuple[tuple[int, ...], list[frozenset[int]]]] = []
-        atom_rings = rotor_model.ring_info.get("ring_atoms", [])
-        for ring in atom_rings:
-            if len(ring) < 6:
-                continue
-            if all(mol.GetAtomWithIdx(i).GetIsAromatic() for i in ring):
-                continue
-            from ..perceive import _is_metal
-
-            if any(_is_metal(mol.GetAtomWithIdx(i)) for i in ring):
-                continue
-            ring_set = frozenset(ring)
-            subtrees = [self._compute_substituent_atoms(mol, ring_set, i) for i in ring]
-            self._crankable_rings.append((tuple(ring), subtrees))
+        self._clash_checker = ClashChecker(mol, self._nonbonded_mask, self._clash_threshold2)
 
         # Staging mol for batch minimization: same topology, no conformers.
         # Candidates are isolated here to avoid minimizing pool members.
@@ -364,6 +240,14 @@ class HybridProposer:
         self._move_attempts: dict[str, float] = dict.fromkeys(config.move_probs, 0.0)
         self._move_rewards: dict[str, float] = dict.fromkeys(config.move_probs, 0.0)
         self._pending_tags: dict[int, str] = {}
+        self._move_operators: dict[str, Callable[[int], None]] = {
+            "single_rotor": self._apply_single_rotor_move,
+            "multi_rotor": self._apply_multi_rotor_move,
+            "correlated": self._apply_correlated_move,
+            "global_shake": self._apply_global_shake,
+            "ring_flip": self._apply_ring_flip_move,
+            "crankshaft": self._apply_crankshaft_move,
+        }
 
     def _increment_stat(self, key: str, amount: int = 1) -> None:
         """Increment an integer stat when instrumentation is enabled."""
@@ -393,16 +277,20 @@ class HybridProposer:
         # useSmallRingTorsions: crystallography-derived preferences for 3-7-membered rings.
         # useMacrocycleTorsions: macrocycle-specific distance bounds (≥8-membered).
         ring_info = self.rotor_model.ring_info
+        macrocycle_tuning = get_runtime_tuning().macrocycle_seeding
         if ring_info.get("has_small_ring"):
             params.useSmallRingTorsions = True
         if ring_info.get("has_macrocycle"):
-            params.useMacrocycleTorsions = True
-            params.useBasicKnowledge = True
+            if macrocycle_tuning.use_macrocycle_torsions:
+                params.useMacrocycleTorsions = True
+            if macrocycle_tuning.use_basic_knowledge:
+                params.useBasicKnowledge = True
             # Macrocycles have many low-RMSD-distinct puckers; the default
             # 1.0 Å prune threshold collapses them before minimization. Disable
             # seed pruning so the diversity ETKDG generates actually reaches
             # the MMFF stage.
-            params.pruneRmsThresh = -1.0
+            if macrocycle_tuning.disable_prune_rms:
+                params.pruneRmsThresh = -1.0
 
         embed_start = time.perf_counter()
         conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
@@ -540,249 +428,32 @@ class HybridProposer:
         return (new_conf_id, energy, f"hybrid_{move_type}")
 
     def _sample_angle(self, rotor_idx: int) -> float:
-        """Sample an angle from the torsion library.
-
-        Args:
-            rotor_idx: Index of the rotor.
-
-        Returns:
-            Sampled angle in degrees (with jitter).
-        """
-        angles_arr, weights_arr = self._rotor_angles[rotor_idx]
-        idx = np.random.choice(len(angles_arr), p=weights_arr)
-        jitter = np.random.normal(0.0, self.config.torsion_jitter_deg)
-        return float(angles_arr[idx]) + jitter
+        """Sample an angle from the torsion library."""
+        return self._moves.sample_angle(rotor_idx)
 
     def _apply_single_rotor_move(self, conf_id: int) -> None:
-        """Apply a single rotor move.
-
-        Args:
-            conf_id: Conformer ID to modify.
-        """
-        if not self.rotor_model.rotors:
-            return
-
-        # Pick random rotor
-        rotor_idx = random.randrange(len(self.rotor_model.rotors))
-        rotor = self.rotor_model.rotors[rotor_idx]
-
-        # Sample new angle
-        new_angle = self._sample_angle(rotor_idx)
-
-        # Set angle
-        _set_dihedral(self.mol, conf_id, rotor.dihedral_atoms, new_angle)
+        """Apply a single rotor move."""
+        self._moves.apply_single_rotor_move(conf_id)
 
     def _apply_multi_rotor_move(self, conf_id: int, n_rotors: int = 3) -> None:
-        """Apply multiple independent rotor moves.
-
-        Args:
-            conf_id: Conformer ID to modify.
-            n_rotors: Number of rotors to change.
-        """
-        if not self.rotor_model.rotors:
-            return
-
-        n = min(n_rotors, len(self.rotor_model.rotors))
-        rotor_indices = random.sample(range(len(self.rotor_model.rotors)), n)
-
-        for rotor_idx in rotor_indices:
-            rotor = self.rotor_model.rotors[rotor_idx]
-            new_angle = self._sample_angle(rotor_idx)
-            _set_dihedral(self.mol, conf_id, rotor.dihedral_atoms, new_angle)
+        """Apply multiple independent rotor moves."""
+        self._moves.apply_multi_rotor_move(conf_id, n_rotors=n_rotors)
 
     def _apply_correlated_move(self, conf_id: int) -> None:
-        """Apply a correlated move (change rotor and its neighbors).
-
-        Args:
-            conf_id: Conformer ID to modify.
-        """
-        if not self.rotor_model.rotors:
-            return
-
-        # Pick a rotor with neighbors
-        candidates = [i for i, r in enumerate(self.rotor_model.rotors) if r.neighbors]
-
-        if not candidates:
-            # Fall back to single move
-            self._apply_single_rotor_move(conf_id)
-            return
-
-        center_idx = random.choice(candidates)
-        center_rotor = self.rotor_model.rotors[center_idx]
-
-        # Change center and neighbors
-        for rotor_idx in [center_idx, *center_rotor.neighbors]:
-            rotor = self.rotor_model.rotors[rotor_idx]
-            new_angle = self._sample_angle(rotor_idx)
-            _set_dihedral(self.mol, conf_id, rotor.dihedral_atoms, new_angle)
+        """Apply a correlated move (change rotor and its neighbors)."""
+        self._moves.apply_correlated_move(conf_id)
 
     def _apply_global_shake(self, conf_id: int) -> None:
-        """Apply a global shake (change many rotors).
-
-        Args:
-            conf_id: Conformer ID to modify.
-        """
-        if not self.rotor_model.rotors:
-            return
-
-        # Change 50-80% of rotors
-        n_to_change = max(
-            1, random.randint(len(self.rotor_model.rotors) // 2, int(len(self.rotor_model.rotors) * 0.8) + 1)
-        )
-
-        rotor_indices = random.sample(
-            range(len(self.rotor_model.rotors)), min(n_to_change, len(self.rotor_model.rotors))
-        )
-
-        for rotor_idx in rotor_indices:
-            rotor = self.rotor_model.rotors[rotor_idx]
-            new_angle = self._sample_angle(rotor_idx)
-            _set_dihedral(self.mol, conf_id, rotor.dihedral_atoms, new_angle)
-
-    @staticmethod
-    def _compute_substituent_atoms(mol: Chem.Mol, ring_atoms: frozenset[int], ring_atom: int) -> frozenset[int]:
-        """Atoms reachable from ring_atom without re-entering the same ring.
-
-        Returns ring_atom itself plus any attached substituent subtree
-        (hydrogens, pendant groups). Other atoms of the same ring are treated
-        as barriers and are not traversed, so the returned set is exactly the
-        group that should rigidly follow ring_atom during a crankshaft rotation.
-
-        Args:
-            mol: RDKit molecule.
-            ring_atoms: Indices of all atoms in the ring currently being cranked.
-            ring_atom: Ring atom whose substituent tree is sought.
-
-        Returns:
-            frozenset of atom indices that move with ring_atom.
-        """
-        visited: set[int] = {ring_atom}
-        stack = [ring_atom]
-        while stack:
-            cur = stack.pop()
-            for nb in mol.GetAtomWithIdx(cur).GetNeighbors():
-                j = nb.GetIdx()
-                if j in visited:
-                    continue
-                if j in ring_atoms and j != ring_atom:
-                    continue
-                visited.add(j)
-                stack.append(j)
-        return frozenset(visited)
+        """Apply a global shake (change many rotors)."""
+        self._moves.apply_global_shake(conf_id)
 
     def _apply_crankshaft_move(self, conf_id: int) -> None:
-        """Rotate an arc of ring atoms about the axis through two anchor atoms.
-
-        Picks a ring uniformly from self._crankable_rings, two non-adjacent
-        anchors (a_p, a_q) uniformly from the ring, and rotates every atom of
-        the shorter inter-anchor arc (plus its substituent subtree) about the
-        a_p–a_q axis by a random angle. Because both anchors lie on the axis,
-        bond lengths between each anchor and its ring neighbours are preserved
-        exactly; only the anchor bond angles deform, and those relax in the
-        subsequent MMFF minimization.
-
-        Has no effect when no crankable rings exist.
-
-        Args:
-            conf_id: Conformer ID to modify in place.
-        """
-        if not self._crankable_rings:
-            return
-
-        ring_atoms, subtrees = random.choice(self._crankable_rings)
-        n = len(ring_atoms)
-
-        # Pick two non-adjacent anchors. Arc length k = number of interior atoms
-        # to rotate, drawn from [1, n-3]. For n=6 this is [1, 3]; for n=12, [1, 9].
-        # Shorter arcs give smaller local moves; longer arcs reshape the ring globally.
-        p = random.randrange(n)
-        arc_len = random.randint(1, n - 3)
-        # Interior positions are p+1, p+2, ..., p+arc_len (mod n); anchor q is p+arc_len+1.
-        interior = [(p + 1 + k) % n for k in range(arc_len)]
-        q = (p + arc_len + 1) % n
-
-        anchor_p_idx = ring_atoms[p]
-        anchor_q_idx = ring_atoms[q]
-
-        conf = self.mol.GetConformer(conf_id)
-        all_pos = conf.GetPositions()
-        axis_origin = all_pos[anchor_p_idx]
-        axis_vec = all_pos[anchor_q_idx] - axis_origin
-        axis_norm = float(np.linalg.norm(axis_vec))
-        if axis_norm < 1e-6:
-            return
-        axis_unit = axis_vec / axis_norm
-
-        # Rotation angle: uniform from [30°, 120°] with random sign, plus gaussian jitter.
-        # Smaller range than the ±180° limit keeps post-move geometries within reach of
-        # MMFF relaxation; larger rotations on dense macrocycles nearly always clash.
-        base = random.uniform(30.0, 120.0) * random.choice([-1.0, 1.0])
-        theta = np.deg2rad(base + np.random.normal(0.0, self.config.torsion_jitter_deg))
-
-        # Rodrigues' rotation matrix.
-        c, s = np.cos(theta), np.sin(theta)
-        one_c = 1.0 - c
-        ux, uy, uz = axis_unit
-        R = np.array(
-            [
-                [c + ux * ux * one_c, ux * uy * one_c - uz * s, ux * uz * one_c + uy * s],
-                [uy * ux * one_c + uz * s, c + uy * uy * one_c, uy * uz * one_c - ux * s],
-                [uz * ux * one_c - uy * s, uz * uy * one_c + ux * s, c + uz * uz * one_c],
-            ]
-        )
-
-        # Collect every atom that moves with the interior arc: each interior
-        # ring atom plus its substituent subtree.
-        moving: set[int] = set()
-        for pos_in_ring in interior:
-            moving |= subtrees[pos_in_ring]
-
-        if not moving:
-            return
-
-        moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
-        pts = all_pos[moving_arr] - axis_origin
-        rotated = pts @ R.T + axis_origin
-
-        for atom_idx, new_xyz in zip(moving_arr.tolist(), rotated, strict=True):
-            conf.SetAtomPosition(int(atom_idx), new_xyz.tolist())
+        """Rotate an arc of ring atoms about the axis through two anchor atoms."""
+        self._moves.apply_crankshaft_move(conf_id)
 
     def _apply_ring_flip_move(self, conf_id: int) -> None:
-        """Apply a ring flip to a randomly chosen non-aromatic ring.
-
-        Reflects each ring atom through the ring's mean plane (computed via
-        SVD), effectively inverting chair/envelope conformations. Attached
-        non-ring atoms are left in place and relaxed by subsequent minimization.
-
-        Args:
-            conf_id: Conformer ID to modify in-place.
-        """
-        if not self.rotor_model.ring_flips:
-            return
-
-        ring_flip = random.choice(self.rotor_model.ring_flips)
-        ring_atoms = ring_flip.ring_atoms
-
-        conf = self.mol.GetConformer(conf_id)
-        # Fetch all positions once (no per-atom Python calls on the way in).
-        all_pos = conf.GetPositions()  # shape (n_atoms, 3), C++ copy
-        ring_idx = list(ring_atoms)
-        ring_pos = all_pos[ring_idx]  # shape (n_ring, 3)
-
-        # Compute ring centroid and plane normal via SVD.
-        # The normal is the right-singular vector with the smallest singular value
-        # (direction of least variance = perpendicular to the ring plane).
-        centroid = ring_pos.mean(axis=0)
-        _, _, vh = np.linalg.svd(ring_pos - centroid)
-        normal = vh[-1]  # unit normal to the best-fit plane
-
-        # Vectorized reflection: new_pos = pos - 2 * (dot(pos-centroid, n)) * n
-        signed_dists = (ring_pos - centroid) @ normal  # shape (n_ring,)
-        reflected = ring_pos - 2.0 * signed_dists[:, None] * normal
-
-        # Write back only the modified ring atoms.
-        for atom_idx, new_xyz in zip(ring_idx, reflected, strict=True):
-            conf.SetAtomPosition(atom_idx, new_xyz.tolist())
+        """Apply a ring flip to a randomly chosen non-aromatic ring."""
+        self._moves.apply_ring_flip_move(conf_id)
 
     def _select_move_type(self, step: int) -> str:
         """Select move type based on probabilities and step count.
@@ -793,30 +464,20 @@ class HybridProposer:
         Returns:
             Move type string.
         """
-        # Periodic global shake — suppressed in constrained mode (would thrash
-        # the carefully placed starting pose).
-        if self.constraint_spec is None and step > 0 and step % self.config.shake_period == 0:
-            return "global_shake"
+        forced = resolve_forced_move(
+            step,
+            self.config.shake_period,
+            constrained=self.constraint_spec is not None,
+        )
+        if forced is not None:
+            return forced
 
-        # Weighted random selection, suppressing unavailable move types.
-        probs = dict(self._current_move_probs)
-
-        # Remove global_shake from weighted pool in constrained mode.
-        if self.constraint_spec is not None:
-            extra = probs.pop("global_shake", 0.0)
-            probs["single_rotor"] = probs.get("single_rotor", 0.0) + extra
-            # Crankshaft moves the ring backbone, which would drift constrained atoms.
-            extra = probs.pop("crankshaft", 0.0)
-            probs["single_rotor"] = probs.get("single_rotor", 0.0) + extra
-
-        if not self.rotor_model.ring_flips and "ring_flip" in probs:
-            extra = probs.pop("ring_flip")
-            # redistribute to single_rotor
-            probs["single_rotor"] = probs.get("single_rotor", 0.0) + extra
-
-        if not self._crankable_rings and "crankshaft" in probs:
-            extra = probs.pop("crankshaft")
-            probs["single_rotor"] = probs.get("single_rotor", 0.0) + extra
+        probs = resolve_move_probabilities(
+            self._current_move_probs,
+            constrained=self.constraint_spec is not None,
+            has_ring_flips=bool(self.rotor_model.ring_flips),
+            has_crankshaft=bool(self._crankable_rings),
+        )
 
         total = sum(probs.values())
         r = random.random() * total
@@ -922,40 +583,35 @@ class HybridProposer:
         Returns:
             Tuple of (conf_id, move_type), or None if candidate was rejected.
         """
+        parent_start = time.perf_counter()
         parent_id = pool.get_parent(strategy=self.config.parent_strategy)
+        self._add_time_stat("parent_selection_time_s", time.perf_counter() - parent_start)
         if parent_id is None:
             return None
 
         self._increment_stat("n_candidate_attempts")
         new_conf_id = _copy_conformer(self.mol, parent_id)
+        move_select_start = time.perf_counter()
         move_type = self._select_move_type(step)
+        self._add_time_stat("move_selection_time_s", time.perf_counter() - move_select_start)
+        move_apply_start = time.perf_counter()
+        self._move_operators[move_type](new_conf_id)
+        self._add_time_stat("move_apply_time_s", time.perf_counter() - move_apply_start)
 
-        if move_type == "single_rotor":
-            self._apply_single_rotor_move(new_conf_id)
-        elif move_type == "multi_rotor":
-            self._apply_multi_rotor_move(new_conf_id)
-        elif move_type == "correlated":
-            self._apply_correlated_move(new_conf_id)
-        elif move_type == "global_shake":
-            self._apply_global_shake(new_conf_id)
-        elif move_type == "ring_flip":
-            self._apply_ring_flip_move(new_conf_id)
-        elif move_type == "crankshaft":
-            self._apply_crankshaft_move(new_conf_id)
-
-        # Crankshaft and ring_flip legitimately produce strained intermediate
-        # geometries (tight H..H in particular) that MMFF relaxes fine. The
-        # static clash threshold rejects most of these, so skip it for those
-        # move types and rely on the post-minimization energy filter instead.
-        clash_exempt = move_type in ("crankshaft", "ring_flip")
-        if not self.config.skip_clash_check and not clash_exempt:
-            pos = self.mol.GetConformer(new_conf_id).GetPositions()
-            diff = pos[:, None, :] - pos[None, :, :]
-            dist2 = (diff * diff).sum(axis=-1)
-            if bool((dist2[self._nonbonded_mask] < self._clash_threshold2).any()):
-                self._increment_stat("n_clash_rejections")
-                self.mol.RemoveConformer(new_conf_id)
-                return None
+        # Some ring-centric moves produce strained intermediates that MMFF
+        # relaxes successfully; the clash filter would reject many of them
+        # prematurely, so the policy may exempt those move types.
+        clash_start = time.perf_counter()
+        if self._clash_checker.has_clash(
+            new_conf_id,
+            move_type,
+            skip_check=self.config.skip_clash_check,
+        ):
+            self._add_time_stat("clash_check_time_s", time.perf_counter() - clash_start)
+            self._increment_stat("n_clash_rejections")
+            self.mol.RemoveConformer(new_conf_id)
+            return None
+        self._add_time_stat("clash_check_time_s", time.perf_counter() - clash_start)
 
         self._increment_stat("n_candidates_passed_clash")
         return (new_conf_id, move_type)
@@ -1026,50 +682,37 @@ class HybridProposer:
         if not candidates:
             return []
 
-        # 2. Copy each candidate into the staging mol, track main→stage mapping.
-        stage_ids: list[int] = []
-        for main_id, _ in candidates:
-            conf = self.mol.GetConformer(main_id)
-            stage_id = self._staging_mol.AddConformer(Chem.Conformer(conf), assignId=True)
-            stage_ids.append(stage_id)
+        staging_start = time.perf_counter()
+        batch = CandidateBatchWorkspace.from_candidates(self.mol, self._staging_mol, candidates)
+        self._add_time_stat("batch_staging_time_s", time.perf_counter() - staging_start)
 
-        # 3. Minimize staging conformers using pre-prepared props (includes fast_dielectric).
+        # 2. Minimize staging conformers using pre-prepared props (includes fast_dielectric).
         nthreads = int(self.config.num_threads or 0)
         max_its = int(self.fast_minimizer.max_iters)
-        self._increment_stat("n_minimization_calls", len(stage_ids))
+        self._increment_stat("n_minimization_calls", len(batch.stage_ids))
         minimize_start = time.perf_counter()
         if self._staging_mmff_props is not None:
-            energies = minimize_confs_mmff(self._staging_mol, self._staging_mmff_props, stage_ids, max_its, nthreads)
+            energies = minimize_confs_mmff(
+                self._staging_mol,
+                self._staging_mmff_props,
+                batch.stage_ids,
+                max_its,
+                nthreads,
+            )
         else:
             AllChem.UFFOptimizeMoleculeConfs(self._staging_mol, numThreads=nthreads, maxIters=max_its)
             energies = [
                 float(ff.CalcEnergy())
-                if (ff := AllChem.UFFGetMoleculeForceField(self._staging_mol, confId=sid))
+                if (ff := AllChem.UFFGetMoleculeForceField(self._staging_mol, confId=stage_id))
                 else float("inf")
-                for sid in stage_ids
+                for stage_id in batch.stage_ids
             ]
         self._add_time_stat("minimization_time_s", time.perf_counter() - minimize_start)
-        stage_energies = dict(zip(stage_ids, energies, strict=True))
-
-        # 4. Transfer accepted conformers back; discard rejected ones.
-        results: list[tuple[int, float, str]] = []
-        for (main_id, move_type), stage_id in zip(candidates, stage_ids, strict=True):
-            # Always remove the unminimized candidate from self.mol.
-            self.mol.RemoveConformer(main_id)
-
-            energy = stage_energies[stage_id]
-
-            if np.isfinite(energy):
-                # Add the minimized staging conformer to self.mol.
-                minimized_conf = self._staging_mol.GetConformer(stage_id)
-                final_id = self.mol.AddConformer(Chem.Conformer(minimized_conf), assignId=True)
-                results.append((final_id, energy, f"hybrid_{move_type}"))
-            else:
-                self._increment_stat("n_minimization_failures")
-
-        # 5. Clear staging mol for next batch.
-        self._staging_mol.RemoveAllConformers()
-
+        commit_start = time.perf_counter()
+        results, failures = batch.commit(energies)
+        self._add_time_stat("batch_commit_time_s", time.perf_counter() - commit_start)
+        if failures:
+            self._increment_stat("n_minimization_failures", failures)
         return results
 
     def full_refine_final(
@@ -1176,6 +819,7 @@ def run_hybrid_generation(
     mol: Chem.Mol,
     rotor_model: RotorModel,
     config: ConformerConfig,
+    torsion_library: TorsionLibrary | None = None,
 ) -> tuple[Chem.Mol, list[int], list[float], dict[str, float | int]]:
     """Run hybrid conformer generation.
 
@@ -1183,12 +827,13 @@ def run_hybrid_generation(
         mol: RDKit molecule (will be modified).
         rotor_model: Rotor model.
         config: Generation configuration.
+        torsion_library: Optional torsion library override.
 
     Returns:
         Tuple of (mol, conf_ids, energies, generation_stats).
     """
     total_start = time.perf_counter()
-    stats = _new_generation_stats() if config.collect_stats else {}
+    stats = new_generation_stats() if config.collect_stats else {}
     constraint_spec = config.constraint_spec
 
     # Filter rotors before building the proposer so _rotor_angles is computed
@@ -1197,19 +842,14 @@ def run_hybrid_generation(
         rotor_model = filter_constrained_rotors(rotor_model, constraint_spec.constrained_atoms)
 
     effective_config, tuned_defaults_applied = _resolve_runtime_tuned_config(config, rotor_model)
-    if stats:
-        stats["topology_tuned_defaults_applied"] = int(tuned_defaults_applied)
-        stats["effective_seed_n_per_rotor"] = effective_config.seed_n_per_rotor
-        stats["effective_seed_prune_rms_thresh"] = _resolve_seed_prune_rms_thresh(mol, rotor_model, effective_config)
-        stats["effective_seed_minimization_iters"] = (
-            effective_config.seed_minimization_iters
-            if effective_config.seed_minimization_iters is not None
-            else effective_config.fast_minimization_iters
-        )
-        stats["effective_dedupe_period"] = effective_config.dedupe_period
-        stats["effective_minimize_batch_size"] = effective_config.minimize_batch_size
+    populate_effective_config_stats(
+        stats,
+        config=effective_config,
+        tuned_defaults_applied=tuned_defaults_applied,
+        seed_prune_rms_thresh=_resolve_seed_prune_rms_thresh(mol, rotor_model, effective_config),
+    )
 
-    torsion_lib = TorsionLibrary()
+    torsion_lib = torsion_library if torsion_library is not None else get_default_torsion_library()
     proposer = HybridProposer(
         mol, rotor_model, torsion_lib, effective_config, constraint_spec=constraint_spec, stats=stats or None
     )
@@ -1337,6 +977,99 @@ def run_hybrid_generation(
         final_energies = [energy_map.get(cid, float("inf")) for cid in final_ids]
 
     # Clean up: remove non-selected conformers
+    all_ids = set(pool.conf_ids)
+    final_set = set(final_ids)
+    for cid in all_ids - final_set:
+        mol.RemoveConformer(cid)
+
+    if stats:
+        stats["total_time_s"] = time.perf_counter() - total_start
+
+    return mol, final_ids, final_energies, stats
+
+
+def run_low_flex_generation(
+    mol: Chem.Mol,
+    rotor_model: RotorModel,
+    config: ConformerConfig,
+    torsion_library: TorsionLibrary | None = None,
+) -> tuple[Chem.Mol, list[int], list[float], dict[str, float | int]]:
+    """Run the ETKDG-only low-flexibility fast path.
+
+    This path is intended for simple unconstrained molecules where torsional
+    MC exploration adds little value over dense ETKDG seeding. It reuses the
+    existing seed generation, pool selection, and final refinement logic while
+    skipping the proposal loop entirely.
+
+    Args:
+        mol: RDKit molecule (will be modified).
+        rotor_model: Rotor model.
+        config: Generation configuration.
+        torsion_library: Optional torsion library override.
+
+    Returns:
+        Tuple of (mol, conf_ids, energies, generation_stats).
+    """
+    total_start = time.perf_counter()
+    stats = new_generation_stats() if config.collect_stats else {}
+
+    populate_effective_config_stats(
+        stats,
+        config=config,
+        tuned_defaults_applied=False,
+        seed_prune_rms_thresh=_resolve_seed_prune_rms_thresh(mol, rotor_model, config),
+    )
+
+    torsion_lib = torsion_library if torsion_library is not None else get_default_torsion_library()
+    proposer = HybridProposer(mol, rotor_model, torsion_lib, config, stats=stats or None)
+    pool = ConformerPool(mol, config)
+
+    seed_start = time.perf_counter()
+    n_seeds = config.n_seeds if config.n_seeds is not None else _compute_n_seeds(rotor_model, config.seed_n_per_rotor)
+    seed_budget_scale = _resolve_seed_budget_scale(mol, rotor_model, config)
+    if config.n_seeds is None and seed_budget_scale != 1.0:
+        n_seeds = max(20, round(n_seeds * seed_budget_scale))
+    seeds = proposer.generate_seeds(n_seeds)
+    if stats:
+        stats["requested_n_seeds"] = n_seeds
+        stats["effective_seed_budget_scale"] = seed_budget_scale
+        stats["seed_time_s"] = time.perf_counter() - seed_start
+        stats["n_seed_conformers"] = len(seeds)
+
+    for conf_id, energy in seeds:
+        accepted = pool.insert(conf_id, energy, source="seed_etkdg")
+        if accepted:
+            if stats:
+                stats["n_pool_accepts"] = int(stats["n_pool_accepts"]) + 1
+        else:
+            if stats:
+                stats["n_pool_rejections"] = int(stats["n_pool_rejections"]) + 1
+            mol.RemoveConformer(conf_id)
+
+    final_selection_start = time.perf_counter()
+    final_ids = pool.select_final()
+    if stats:
+        stats["final_selection_time_s"] = time.perf_counter() - final_selection_start
+        stats["n_final_selected"] = len(final_ids)
+        stats["n_steps_executed"] = 0
+
+    if config.do_final_refine:
+        final_refine_start = time.perf_counter()
+        final_energies = proposer.full_refine_final(
+            mol,
+            final_ids,
+            config.num_threads,
+            config.max_minimization_iters,
+            dielectric=config.final_dielectric,
+        )
+        if stats:
+            stats["final_refine_time_s"] = time.perf_counter() - final_refine_start
+    else:
+        energy_map = {
+            cid: (rec.energy_kcal if rec.energy_kcal is not None else float("inf")) for cid, rec in pool.records.items()
+        }
+        final_energies = [energy_map.get(cid, float("inf")) for cid in final_ids]
+
     all_ids = set(pool.conf_ids)
     final_set = set(final_ids)
     for cid in all_ids - final_set:

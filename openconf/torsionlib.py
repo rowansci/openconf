@@ -7,6 +7,7 @@ were converted to preferred angles by numerical minimization.
 
 import json
 from dataclasses import dataclass, field
+from functools import cache
 from importlib.resources import files
 from pathlib import Path
 
@@ -210,3 +211,14 @@ class TorsionLibrary:
     def __len__(self) -> int:
         """Return number of rules in the library."""
         return len(self.rules)
+
+
+@cache
+def get_default_torsion_library() -> TorsionLibrary:
+    """Return the cached default torsion library.
+
+    The bundled CrystalFF-derived library is immutable in normal use, so a
+    shared instance avoids repeated JSON parsing and SMARTS compilation across
+    conformer-generation calls.
+    """
+    return TorsionLibrary()

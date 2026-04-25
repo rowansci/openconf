@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+from .tuning import get_default_move_probs
+
 ConformerPreset = Literal["rapid", "ensemble", "spectroscopic", "docking", "analogue"]
 _SUPPORTED_MOVE_TYPES = frozenset(
     {
@@ -203,16 +205,7 @@ class ConformerConfig:
     energy_window_kcal: float = 12.0
     dedupe_period: int = 50
     shake_period: int = 20
-    move_probs: dict[str, float] = field(
-        default_factory=lambda: {
-            "single_rotor": 0.30,
-            "multi_rotor": 0.24,
-            "correlated": 0.16,
-            "global_shake": 0.08,
-            "ring_flip": 0.10,
-            "crankshaft": 0.12,
-        }
-    )
+    move_probs: dict[str, float] = field(default_factory=get_default_move_probs)
     torsion_jitter_deg: float = 10.0
     minimizer: Literal["rdkit_mmff"] = "rdkit_mmff"
     random_seed: int | None = None

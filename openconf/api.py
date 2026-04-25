@@ -9,7 +9,9 @@ from rdkit import Chem
 from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_config
 from .perceive import build_rotor_model, prepare_molecule
 from .pool import ConformerRecord
-from .propose.hybrid import run_hybrid_generation
+from .propose.hybrid import run_hybrid_generation, run_low_flex_generation
+from .torsionlib import TorsionLibrary
+from .tuning import get_runtime_tuning
 
 # Gas constant in kcal/(mol·K); kT at 298.15 K ≈ 0.5924 kcal/mol.
 _R_KCAL_PER_MOL_K = 1.987204e-3
@@ -297,6 +299,7 @@ def generate_conformers(
     method: str = "hybrid",
     config: ConformerConfig | None = None,
     preset: ConformerPreset | None = None,
+    torsion_library: TorsionLibrary | None = None,
 ) -> ConformerEnsemble:
     """Generate a diverse conformer ensemble.
 
@@ -311,6 +314,8 @@ def generate_conformers(
         preset: Named use-case preset. One of ``"rapid"``,
             ``"ensemble"``, ``"spectroscopic"``, ``"docking"``. Mutually
             exclusive with *config*; raises ValueError if both are supplied.
+        torsion_library: Optional torsion library override. If omitted, uses
+            the bundled cached CrystalFF-derived library.
 
     Returns:
         Generated conformers with metadata.
@@ -349,7 +354,15 @@ def generate_conformers(
 
     # Run generation based on method
     if method == "hybrid":
-        mol, conf_ids, energies, generation_stats = run_hybrid_generation(mol, rotor_model, config)
+        low_flex_tuning = get_runtime_tuning().low_flex_path
+        use_low_flex_path = (
+            config.constraint_spec is None
+            and rotor_model.n_rotatable <= low_flex_tuning.max_rotatable
+            and (low_flex_tuning.allow_macrocycles or not rotor_model.ring_info.get("has_macrocycle"))
+            and (low_flex_tuning.allow_rings or not rotor_model.ring_info.get("ring_sizes"))
+        )
+        runner = run_low_flex_generation if use_low_flex_path else run_hybrid_generation
+        mol, conf_ids, energies, generation_stats = runner(mol, rotor_model, config, torsion_library=torsion_library)
     else:
         raise ValueError(f"Unknown method: {method}. Available: 'hybrid'")
 
@@ -371,6 +384,7 @@ def generate_conformers_from_pose(
     constrained_atoms: list[int] | frozenset[int],
     config: ConformerConfig | None = None,
     preset: ConformerPreset | None = None,
+    torsion_library: TorsionLibrary | None = None,
 ) -> ConformerEnsemble:
     """Generate conformers for an MCS-aligned pose, keeping core atoms fixed.
 
@@ -394,6 +408,8 @@ def generate_conformers_from_pose(
         config: Configuration options. Defaults to the ``"analogue"`` preset.
         preset: Named preset. Defaults to ``"analogue"`` when neither *config*
             nor *preset* is given. Mutually exclusive with *config*.
+        torsion_library: Optional torsion library override. If omitted, uses
+            the bundled cached CrystalFF-derived library.
 
     Returns:
         ConformerEnsemble with terminal-group conformational diversity while
@@ -437,7 +453,12 @@ def generate_conformers_from_pose(
 
     rotor_model = build_rotor_model(prepped_mol)
 
-    prepped_mol, conf_ids, energies, generation_stats = run_hybrid_generation(prepped_mol, rotor_model, resolved_config)
+    prepped_mol, conf_ids, energies, generation_stats = run_hybrid_generation(
+        prepped_mol,
+        rotor_model,
+        resolved_config,
+        torsion_library=torsion_library,
+    )
 
     records = [
         ConformerRecord(

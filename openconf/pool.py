@@ -47,6 +47,22 @@ def _build_3d_descriptors(mol: Chem.Mol, conf_id: int, radii: object) -> list[fl
     ]
 
 
+def _softmax_parent_weights(energies: np.ndarray, temperature: float) -> np.ndarray:
+    """Return numerically stable parent-selection weights."""
+    finite = np.isfinite(energies)
+    if not finite.any():
+        return np.full(len(energies), 1.0 / len(energies))
+
+    shifted = energies[finite] - energies[finite].min()
+    weights = np.zeros(len(energies), dtype=float)
+    weights[finite] = np.exp(-shifted / temperature)
+    total = float(weights.sum())
+    if total <= 0.0:
+        return np.full(len(energies), 1.0 / len(energies))
+    weights /= total
+    return weights
+
+
 def _pick_diverse_maxmin(
     mol: Chem.Mol,
     conf_ids: list[int],
@@ -123,6 +139,83 @@ class ConformerRecord:
 
 
 @dataclass
+class ParentSampler:
+    """Cached parent selector for a conformer pool."""
+
+    pool: "ConformerPool"
+    _dirty: bool = field(default=True, init=False, repr=False)
+    _records_ref: dict[int, ConformerRecord] | None = field(default=None, init=False, repr=False)
+    _records_version: int = field(default=-1, init=False, repr=False)
+    _conf_ids: list[int] = field(default_factory=list, init=False, repr=False)
+    _energies: np.ndarray = field(default_factory=lambda: np.array([], dtype=float), init=False, repr=False)
+    _best_index: int | None = field(default=None, init=False, repr=False)
+    _softmax_temperature: float | None = field(default=None, init=False, repr=False)
+    _softmax_weights: np.ndarray | None = field(default=None, init=False, repr=False)
+
+    def mark_dirty(self) -> None:
+        """Invalidate cached views after the pool changes."""
+        self._dirty = True
+        self._softmax_temperature = None
+        self._softmax_weights = None
+
+    def _needs_refresh(self) -> bool:
+        """Return whether cached pool views are stale."""
+        return (
+            self._dirty
+            or self._records_ref is not self.pool.records
+            or self._records_version != self.pool._records_version
+        )
+
+    def _refresh(self) -> None:
+        """Rebuild cached conformer IDs and energies."""
+        self._records_ref = self.pool.records
+        self._records_version = self.pool._records_version
+        self._conf_ids = list(self.pool.records.keys())
+        self._energies = np.array(
+            [_energy_or_inf(self.pool.records[cid].energy_kcal) for cid in self._conf_ids],
+            dtype=float,
+        )
+        self._best_index = int(np.argmin(self._energies)) if len(self._conf_ids) > 0 else None
+        self._softmax_temperature = None
+        self._softmax_weights = None
+        self._dirty = False
+
+    def _ensure_fresh(self) -> None:
+        """Refresh cached pool views when necessary."""
+        if self._needs_refresh():
+            self._refresh()
+
+    def conf_ids(self) -> list[int]:
+        """Return conformer IDs in cached pool order."""
+        self._ensure_fresh()
+        return self._conf_ids.copy()
+
+    def energies(self) -> list[float]:
+        """Return cached energies aligned to ``conf_ids``."""
+        self._ensure_fresh()
+        return self._energies.tolist()
+
+    def select(self, strategy: str, temperature: float) -> int | None:
+        """Select a parent conformer ID using the requested strategy."""
+        self._ensure_fresh()
+        if not self._conf_ids:
+            return None
+
+        if strategy == "best":
+            assert self._best_index is not None
+            return self._conf_ids[self._best_index]
+
+        if strategy == "uniform":
+            return random.choice(self._conf_ids)
+
+        if self._softmax_weights is None or self._softmax_temperature != temperature:
+            self._softmax_weights = _softmax_parent_weights(self._energies, temperature)
+            self._softmax_temperature = temperature
+
+        return int(np.random.choice(self._conf_ids, p=self._softmax_weights))
+
+
+@dataclass
 class ConformerPool:
     """Manages a pool of conformers during generation.
 
@@ -145,6 +238,12 @@ class ConformerPool:
     _worst_energy: float = field(default=float("-inf"), init=False)
     _worst_id: int | None = field(default=None, init=False)
     _worst_dirty: bool = field(default=False, init=False)
+    _records_version: int = field(default=0, init=False)
+    _parent_sampler: ParentSampler = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Initialize cached helpers."""
+        self._parent_sampler = ParentSampler(self)
 
     @property
     def size(self) -> int:
@@ -159,12 +258,17 @@ class ConformerPool:
     @property
     def conf_ids(self) -> list[int]:
         """List of conformer IDs in pool."""
-        return list(self.records.keys())
+        return self._parent_sampler.conf_ids()
 
     @property
     def energies(self) -> list[float]:
         """List of energies (in order of conf_ids)."""
-        return [_energy_or_inf(self.records[cid].energy_kcal) for cid in self.conf_ids]
+        return self._parent_sampler.energies()
+
+    def _mark_records_changed(self) -> None:
+        """Invalidate cached selectors after mutating the pool."""
+        self._records_version += 1
+        self._parent_sampler.mark_dirty()
 
     def insert(
         self,
@@ -224,6 +328,7 @@ class ConformerPool:
             self._worst_energy = energy
             self._worst_id = conf_id
 
+        self._mark_records_changed()
         self._steps_since_dedupe += 1
         return True
 
@@ -264,6 +369,7 @@ class ConformerPool:
         # Also refresh _best_energy since dedupe may have removed the best.
         if self.records:
             self._best_energy = min(_energy_or_inf(r.energy_kcal) for r in self.records.values())
+        self._mark_records_changed()
 
         return old_size - self.size
 
@@ -307,24 +413,4 @@ class ConformerPool:
         Returns:
             Conformer ID or None if pool is empty.
         """
-        if not self.records:
-            return None
-
-        conf_ids = self.conf_ids
-        energies = self.energies
-
-        if strategy == "best":
-            return conf_ids[energies.index(min(energies))]
-
-        if strategy == "uniform":
-            return random.choice(conf_ids)
-
-        # Softmax selection (biased toward lower energy)
-        energies_array = np.array(energies)
-        # Shift to avoid numerical issues
-        shifted = energies_array - np.min(energies_array)
-        temperature = self.config.parent_softmax_temperature_kcal
-        weights = np.exp(-shifted / temperature)
-        weights /= weights.sum()
-
-        return np.random.choice(conf_ids, p=weights)
+        return self._parent_sampler.select(strategy, self.config.parent_softmax_temperature_kcal)

@@ -38,6 +38,8 @@ def test_build_rotor_model():
 def test_torsion_library():
     """Test torsion library."""
     from openconf import TorsionLibrary
+    from openconf.torsionlib import get_default_torsion_library
+    from openconf.tuning import get_default_move_probs
 
     lib = TorsionLibrary()
     assert len(lib) > 0
@@ -45,6 +47,9 @@ def test_torsion_library():
     # Check that patterns compile
     for pattern, _rule, _pos2, _pos3 in lib._compiled:
         assert pattern is not None
+
+    assert get_default_torsion_library() is get_default_torsion_library()
+    assert get_default_move_probs() is not get_default_move_probs()
 
 
 def test_minimizer():
@@ -81,6 +86,152 @@ def test_generate_conformers_simple():
     assert ensemble.n_conformers > 0
     assert ensemble.n_conformers <= 10
     assert len(ensemble.energies) == ensemble.n_conformers
+
+
+def test_generate_conformers_accepts_custom_torsion_library():
+    """Generation accepts a caller-supplied torsion library."""
+    from openconf import ConformerConfig, TorsionLibrary, generate_conformers
+
+    config = ConformerConfig(
+        max_out=5,
+        n_seeds=3,
+        n_steps=10,
+        pool_max=20,
+        random_seed=0,
+    )
+
+    ensemble = generate_conformers("CCCC", config=config, torsion_library=TorsionLibrary())
+
+    assert ensemble.n_conformers > 0
+
+
+def test_low_flex_path_dispatch(monkeypatch):
+    """Very low-flexibility molecules use the ETKDG-only fast path."""
+    from openconf import ConformerConfig, api
+
+    called = {"low": 0, "hybrid": 0}
+    orig_low = api.run_low_flex_generation
+    orig_hybrid = api.run_hybrid_generation
+
+    def wrapped_low(*args, **kwargs):
+        called["low"] += 1
+        return orig_low(*args, **kwargs)
+
+    def wrapped_hybrid(*args, **kwargs):
+        called["hybrid"] += 1
+        return orig_hybrid(*args, **kwargs)
+
+    monkeypatch.setattr(api, "run_low_flex_generation", wrapped_low)
+    monkeypatch.setattr(api, "run_hybrid_generation", wrapped_hybrid)
+
+    config = ConformerConfig(max_out=5, n_seeds=3, n_steps=20, pool_max=20, random_seed=0, collect_stats=True)
+    ensemble = api.generate_conformers("CCCC", config=config)
+
+    assert called == {"low": 1, "hybrid": 0}
+    assert int(ensemble.generation_stats["n_steps_executed"]) == 0
+
+
+def test_higher_flex_path_uses_hybrid_generation(monkeypatch):
+    """More flexible molecules continue to use the hybrid MC path."""
+    from openconf import ConformerConfig, api
+
+    called = {"low": 0, "hybrid": 0}
+    orig_low = api.run_low_flex_generation
+    orig_hybrid = api.run_hybrid_generation
+
+    def wrapped_low(*args, **kwargs):
+        called["low"] += 1
+        return orig_low(*args, **kwargs)
+
+    def wrapped_hybrid(*args, **kwargs):
+        called["hybrid"] += 1
+        return orig_hybrid(*args, **kwargs)
+
+    monkeypatch.setattr(api, "run_low_flex_generation", wrapped_low)
+    monkeypatch.setattr(api, "run_hybrid_generation", wrapped_hybrid)
+
+    config = ConformerConfig(max_out=5, n_seeds=3, n_steps=20, pool_max=30, random_seed=0)
+    api.generate_conformers("CCCCc1ccccc1", config=config)
+
+    assert called == {"low": 0, "hybrid": 1}
+
+
+def test_runtime_tuning_policy_helpers():
+    """Move scheduling and clash policy helpers preserve current defaults."""
+    from openconf.tuning import is_clash_exempt_move, resolve_forced_move, resolve_move_probabilities
+
+    probs = {
+        "single_rotor": 0.3,
+        "multi_rotor": 0.2,
+        "global_shake": 0.1,
+        "ring_flip": 0.15,
+        "crankshaft": 0.25,
+    }
+
+    constrained = resolve_move_probabilities(
+        probs,
+        constrained=True,
+        has_ring_flips=False,
+        has_crankshaft=False,
+    )
+    assert "global_shake" not in constrained
+    assert "ring_flip" not in constrained
+    assert "crankshaft" not in constrained
+    assert constrained["single_rotor"] == pytest.approx(0.8)
+
+    assert resolve_forced_move(20, 20, constrained=False) == "global_shake"
+    assert resolve_forced_move(20, 20, constrained=True) is None
+
+    assert is_clash_exempt_move("ring_flip") is True
+    assert is_clash_exempt_move("crankshaft") is True
+    assert is_clash_exempt_move("single_rotor") is False
+
+
+def test_generate_candidate_uses_operator_table_and_clash_checker(monkeypatch):
+    """Candidate generation dispatches through the operator table and clash helper."""
+    from rdkit.Chem import AllChem
+
+    from openconf.config import ConformerConfig
+    from openconf.perceive import build_rotor_model, prepare_molecule
+    from openconf.pool import ConformerPool
+    from openconf.propose.hybrid import HybridProposer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles("CCCC"))
+    AllChem.EmbedMolecule(mol, randomSeed=0)
+    rm = build_rotor_model(mol)
+    config = ConformerConfig(max_out=5, pool_max=10, random_seed=0)
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), config)
+    pool = ConformerPool(mol, config)
+    pool.insert(mol.GetConformers()[0].GetId(), 0.0, source="seed")
+
+    calls: list[tuple[str, int | str | bool]] = []
+
+    monkeypatch.setattr(proposer, "_select_move_type", lambda step: "single_rotor")
+    proposer._move_operators["single_rotor"] = lambda conf_id: calls.append(("operator", conf_id))
+
+    def fake_has_clash(
+        conf_id: int,
+        move_type: str,
+        skip_check: bool = False,
+    ) -> bool:
+        calls.extend(
+            [
+                ("move_type", move_type),
+                ("skip_check", skip_check),
+                ("clash_conf_id", conf_id),
+            ]
+        )
+        return True
+
+    monkeypatch.setattr(proposer._clash_checker, "has_clash", fake_has_clash)
+
+    result = proposer._generate_candidate(pool, 0)
+
+    assert result is None
+    assert any(kind == "operator" for kind, _ in calls)
+    assert ("move_type", "single_rotor") in calls
+    assert ("skip_check", False) in calls
 
 
 def test_generate_conformers_butylbenzene():
@@ -262,8 +413,31 @@ def test_collect_stats_populates_generation_stats():
     assert ensemble.generation_stats
     assert float(ensemble.generation_stats["total_time_s"]) >= 0.0
     assert float(ensemble.generation_stats["seed_time_s"]) >= 0.0
+    assert float(ensemble.generation_stats["parent_selection_time_s"]) >= 0.0
+    assert float(ensemble.generation_stats["move_selection_time_s"]) >= 0.0
+    assert float(ensemble.generation_stats["move_apply_time_s"]) >= 0.0
+    assert float(ensemble.generation_stats["clash_check_time_s"]) >= 0.0
+    assert float(ensemble.generation_stats["batch_staging_time_s"]) >= 0.0
+    assert float(ensemble.generation_stats["batch_commit_time_s"]) >= 0.0
     assert int(ensemble.generation_stats["n_seed_conformers"]) >= 1
     assert int(ensemble.generation_stats["n_steps_executed"]) >= 0
+
+
+def test_hybrid_collect_stats_populates_proposal_breakdown():
+    """Flexible molecules record nonzero proposal-stage timing components."""
+    from openconf import ConformerConfig, generate_conformers
+
+    config = ConformerConfig(max_out=5, n_seeds=4, n_steps=20, pool_max=30, random_seed=5, collect_stats=True)
+    ensemble = generate_conformers("CCCCc1ccccc1", config=config)
+
+    assert float(ensemble.generation_stats["proposal_stage_time_s"]) > 0.0
+    assert float(ensemble.generation_stats["parent_selection_time_s"]) > 0.0
+    assert float(ensemble.generation_stats["move_selection_time_s"]) > 0.0
+    assert float(ensemble.generation_stats["move_apply_time_s"]) > 0.0
+    assert float(ensemble.generation_stats["clash_check_time_s"]) > 0.0
+    assert float(ensemble.generation_stats["batch_staging_time_s"]) >= 0.0
+    assert float(ensemble.generation_stats["batch_commit_time_s"]) >= 0.0
+    assert int(ensemble.generation_stats["n_steps_executed"]) > 0
 
 
 def test_large_flexible_defaults_are_topology_tuned():
