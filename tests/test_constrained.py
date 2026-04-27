@@ -265,19 +265,18 @@ def test_filter_constrained_ring_flips():
     assert len(filtered.ring_flips) == 0, "Ring flip should be removed when ring is constrained"
 
 
-def test_filter_free_ring_flips_preserved():
-    """Ring flips whose atoms are all free are kept after filtering."""
+def test_filter_ring_flips_with_constrained_subtrees_removed():
+    """Ring flips with constrained attached subtrees are removed after filtering."""
     from openconf import build_rotor_model, filter_constrained_rotors, prepare_molecule
 
-    # Butyl-cyclohexane: constrain only the butyl chain, ring stays free
+    # Butyl-cyclohexane: constraining attached chain makes subtree-aware flip unsafe.
     mol = prepare_molecule(Chem.MolFromSmiles("CCCCC1CCCCC1"))
     rm = build_rotor_model(mol)
     assert len(rm.ring_flips) == 1
 
-    # Constrain first 4 heavy atoms (butyl chain, not the ring)
     constrained = frozenset([0, 1, 2, 3])
     filtered = filter_constrained_rotors(rm, constrained)
-    assert len(filtered.ring_flips) == 1, "Free ring flip should be preserved"
+    assert len(filtered.ring_flips) == 0, "Ring flip should be removed when attached subtree is constrained"
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from rdkit.Chem import rdMolTransforms
 
-from ..perceive import RotorModel, _is_metal
+from ..perceive import RotorModel, _is_metal, _ring_flip_moving_atoms
 
 if TYPE_CHECKING:
     from rdkit import Chem
@@ -53,6 +53,9 @@ class MoveExecutor:
 
         self.correlated_rotor_indices = [i for i, rotor in enumerate(rotor_model.rotors) if rotor.neighbors]
         self.crankable_rings = self._build_crankable_rings(mol, rotor_model)
+        self.ring_flip_moving_atoms = [
+            tuple(sorted(_ring_flip_moving_atoms(mol, ring_flip.ring_atoms))) for ring_flip in rotor_model.ring_flips
+        ]
         self.operators = {
             "single_rotor": self.apply_single_rotor_move,
             "multi_rotor": self.apply_multi_rotor_move,
@@ -206,8 +209,10 @@ class MoveExecutor:
         if not self.rotor_model.ring_flips:
             return
 
-        ring_flip = random.choice(self.rotor_model.ring_flips)
+        ring_flip_idx = random.randrange(len(self.rotor_model.ring_flips))
+        ring_flip = self.rotor_model.ring_flips[ring_flip_idx]
         ring_atoms = ring_flip.ring_atoms
+        moving_atoms = self.ring_flip_moving_atoms[ring_flip_idx]
         conf = self.mol.GetConformer(conf_id)
         all_pos = conf.GetPositions()
         ring_idx = list(ring_atoms)
@@ -216,8 +221,10 @@ class MoveExecutor:
         centroid = ring_pos.mean(axis=0)
         _, _, vh = np.linalg.svd(ring_pos - centroid)
         normal = vh[-1]
-        signed_dists = (ring_pos - centroid) @ normal
-        reflected = ring_pos - 2.0 * signed_dists[:, None] * normal
+        moving_idx = list(moving_atoms)
+        moving_pos = all_pos[moving_idx]
+        signed_dists = (moving_pos - centroid) @ normal
+        reflected = moving_pos - 2.0 * signed_dists[:, None] * normal
 
-        for atom_idx, new_xyz in zip(ring_idx, reflected, strict=True):
+        for atom_idx, new_xyz in zip(moving_idx, reflected, strict=True):
             conf.SetAtomPosition(atom_idx, new_xyz.tolist())

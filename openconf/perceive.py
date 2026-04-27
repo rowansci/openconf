@@ -302,9 +302,13 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
         List of RingFlip objects.
     """
     flips = []
-    for ring in atom_rings:
+    ring_sets = [frozenset(ring) for ring in atom_rings]
+    for ring_idx, ring in enumerate(atom_rings):
         size = len(ring)
         if size < 5 or size > 7:
+            continue
+        ring_set = ring_sets[ring_idx]
+        if any(len(ring_set & other) > 0 for other_idx, other in enumerate(ring_sets) if other_idx != ring_idx):
             continue
         # Skip fully aromatic rings
         if all(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
@@ -316,6 +320,27 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
             continue
         flips.append(RingFlip(ring_atoms=tuple(ring), ring_size=size))
     return flips
+
+
+def _ring_flip_moving_atoms(mol: Chem.Mol, ring_atoms: tuple[int, ...]) -> frozenset[int]:
+    """Return ring atoms and attached subtrees moved by plane reflection."""
+    ring_set = frozenset(ring_atoms)
+    moving: set[int] = set()
+    for ring_atom in ring_atoms:
+        visited: set[int] = {ring_atom}
+        stack = [ring_atom]
+        while stack:
+            cur = stack.pop()
+            for nb in mol.GetAtomWithIdx(cur).GetNeighbors():
+                idx = nb.GetIdx()
+                if idx in visited:
+                    continue
+                if idx in ring_set and idx != ring_atom:
+                    continue
+                visited.add(idx)
+                stack.append(idx)
+        moving.update(visited)
+    return frozenset(moving)
 
 
 def _atoms_on_side(mol: Chem.Mol, start_atom: int, excluded_atom: int) -> frozenset[int]:
@@ -397,8 +422,10 @@ def filter_constrained_rotors(rotor_model: "RotorModel", constrained_atoms: froz
                 )
             # else: constrained atoms in distal fragments on both sides — exclude this rotor
 
-    # Ring flips: keep only rings with no constrained atoms
-    free_ring_flips = [rf for rf in rotor_model.ring_flips if not constrained_atoms & frozenset(rf.ring_atoms)]
+    # Ring flips: keep only flips whose full reflected atom set is constraint-free.
+    free_ring_flips = [
+        rf for rf in rotor_model.ring_flips if not constrained_atoms & _ring_flip_moving_atoms(mol, rf.ring_atoms)
+    ]
 
     adj = _build_rotor_adjacency(free_rotors, mol)
 

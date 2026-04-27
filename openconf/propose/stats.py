@@ -28,6 +28,7 @@ def new_generation_stats() -> dict[str, GenerationStat]:
         "n_steps_executed": 0,
         "n_batches": 0,
         "n_candidate_attempts": 0,
+        "n_torsion_multitry_trials": 0,
         "n_candidates_passed_clash": 0,
         "n_clash_rejections": 0,
         "n_minimization_calls": 0,

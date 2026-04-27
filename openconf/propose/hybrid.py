@@ -46,6 +46,8 @@ __all__ = [
     "run_low_flex_generation",
 ]
 
+_TORSION_MOVE_TYPES = frozenset({"single_rotor", "multi_rotor", "correlated", "global_shake"})
+
 
 def _resolve_runtime_tuned_config(config: ConformerConfig, rotor_model: RotorModel) -> tuple[ConformerConfig, bool]:
     """Adjust default-equivalent runtime knobs for large flexible molecules."""
@@ -435,6 +437,55 @@ class HybridProposer:
 
         return "single_rotor"  # fallback
 
+    def _use_torsion_multitry(self, move_type: str) -> bool:
+        """Return whether move should use clash-aware multi-try staging."""
+        return (
+            move_type in _TORSION_MOVE_TYPES
+            and self.config.torsion_multitry_attempts > 1
+            and not self.config.skip_clash_check
+        )
+
+    def _generate_multitry_candidate(self, parent_id: int, move_type: str) -> int:
+        """Generate several torsion candidates and keep lowest clash score.
+
+        Args:
+            parent_id: Parent conformer ID.
+            move_type: Torsion move type to apply.
+
+        Returns:
+            Conformer ID for best trial.
+        """
+        best_conf_id: int | None = None
+        best_score = float("inf")
+        n_trials = 0
+
+        for _ in range(self.config.torsion_multitry_attempts):
+            n_trials += 1
+            trial_conf_id = _copy_conformer(self.mol, parent_id)
+
+            move_apply_start = time.perf_counter()
+            self._move_operators[move_type](trial_conf_id)
+            self._add_time_stat("move_apply_time_s", time.perf_counter() - move_apply_start)
+
+            clash_start = time.perf_counter()
+            score = self._clash_checker.clash_score(trial_conf_id)
+            self._add_time_stat("clash_check_time_s", time.perf_counter() - clash_start)
+
+            if score < best_score:
+                if best_conf_id is not None:
+                    self.mol.RemoveConformer(best_conf_id)
+                best_conf_id = trial_conf_id
+                best_score = score
+            else:
+                self.mol.RemoveConformer(trial_conf_id)
+
+            if score <= 0.0:
+                break
+
+        self._increment_stat("n_torsion_multitry_trials", n_trials)
+        assert best_conf_id is not None
+        return best_conf_id
+
     def record_accepted(self, conf_id: int, move_type: str) -> None:
         """Tag a newly accepted conformer with the move that produced it.
 
@@ -536,13 +587,17 @@ class HybridProposer:
             return None
 
         self._increment_stat("n_candidate_attempts")
-        new_conf_id = _copy_conformer(self.mol, parent_id)
         move_select_start = time.perf_counter()
         move_type = self._select_move_type(step)
         self._add_time_stat("move_selection_time_s", time.perf_counter() - move_select_start)
-        move_apply_start = time.perf_counter()
-        self._move_operators[move_type](new_conf_id)
-        self._add_time_stat("move_apply_time_s", time.perf_counter() - move_apply_start)
+
+        if self._use_torsion_multitry(move_type):
+            new_conf_id = self._generate_multitry_candidate(parent_id, move_type)
+        else:
+            new_conf_id = _copy_conformer(self.mol, parent_id)
+            move_apply_start = time.perf_counter()
+            self._move_operators[move_type](new_conf_id)
+            self._add_time_stat("move_apply_time_s", time.perf_counter() - move_apply_start)
 
         # Some ring-centric moves produce strained intermediates that MMFF
         # relaxes successfully; the clash filter would reject many of them

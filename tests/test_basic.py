@@ -234,6 +234,38 @@ def test_generate_candidate_uses_operator_table_and_clash_checker(monkeypatch):
     assert ("skip_check", False) in calls
 
 
+def test_generate_candidate_uses_torsion_multitry(monkeypatch):
+    """Torsion candidate generation keeps best clash-scored trial."""
+    from rdkit.Chem import AllChem
+
+    from openconf.config import ConformerConfig
+    from openconf.perceive import build_rotor_model, prepare_molecule
+    from openconf.pool import ConformerPool
+    from openconf.propose.hybrid import HybridProposer
+    from openconf.propose.stats import new_generation_stats
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles("CCCC"))
+    AllChem.EmbedMolecule(mol, randomSeed=0)
+    rm = build_rotor_model(mol)
+    config = ConformerConfig(max_out=5, pool_max=10, random_seed=0, torsion_multitry_attempts=3)
+    stats = new_generation_stats()
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), config, stats=stats)
+    pool = ConformerPool(mol, config)
+    pool.insert(mol.GetConformers()[0].GetId(), 0.0, source="seed")
+
+    scores = iter([5.0, 2.0, 0.0])
+    monkeypatch.setattr(proposer, "_select_move_type", lambda step: "single_rotor")
+    proposer._move_operators["single_rotor"] = lambda conf_id: None
+    monkeypatch.setattr(proposer._clash_checker, "clash_score", lambda conf_id: next(scores))
+    monkeypatch.setattr(proposer._clash_checker, "has_clash", lambda conf_id, move_type, skip_check=False: False)
+
+    result = proposer._generate_candidate(pool, 0)
+
+    assert result is not None
+    assert stats["n_torsion_multitry_trials"] == 3
+
+
 def test_generate_conformers_butylbenzene():
     """Test conformer generation for a larger molecule."""
     from openconf import ConformerConfig, generate_conformers
@@ -695,15 +727,13 @@ def test_ring_flips_benzene_excluded():
 
 
 def test_ring_flips_mixed():
-    """A molecule with both aromatic and non-aromatic rings: only the non-aromatic one flips."""
+    """Fused aromatic/saturated ring systems should not receive independent flips."""
     from openconf.perceive import build_rotor_model, prepare_molecule
 
     # tetralin: benzene fused to cyclohexane
     mol = prepare_molecule(Chem.MolFromSmiles("C1CCc2ccccc2C1"))
     rm = build_rotor_model(mol)
-    # Only the saturated 6-membered ring should be flippable
-    assert len(rm.ring_flips) == 1
-    assert rm.ring_flips[0].ring_size == 6
+    assert len(rm.ring_flips) == 0
 
 
 def test_ring_info_macrocycle():
@@ -838,6 +868,48 @@ def test_ring_flip_changes_coords():
 
     # At least some atoms should have moved
     assert not np.allclose(orig_pos, new_pos, atol=0.01), "Ring flip did not change any coordinates"
+
+
+def test_ring_flip_moves_attached_subtrees():
+    """Ring flip should reflect substituents with their host ring atoms."""
+    import numpy as np
+    from rdkit.Chem import AllChem
+
+    from openconf.config import ConformerConfig
+    from openconf.perceive import build_rotor_model, prepare_molecule
+    from openconf.propose.hybrid import HybridProposer, _copy_conformer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles("CC1CCCCC1"))
+    AllChem.EmbedMolecule(mol, randomSeed=42)
+
+    rm = build_rotor_model(mol)
+    assert rm.ring_flips, "Need at least one ring flip for this test"
+
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
+    orig_id = mol.GetConformers()[0].GetId()
+    new_id = _copy_conformer(mol, orig_id)
+    methyl_idx = 0
+
+    before = np.array(mol.GetConformer(orig_id).GetAtomPosition(methyl_idx))
+    proposer._apply_ring_flip_move(new_id)
+    after = np.array(mol.GetConformer(new_id).GetAtomPosition(methyl_idx))
+
+    assert not np.allclose(before, after, atol=0.01), "Ring flip did not move attached substituent"
+
+
+def test_fused_rings_do_not_register_ring_flips():
+    """Fused ring systems should not receive independent plane-reflection flips."""
+    from rdkit.Chem import AllChem
+
+    from openconf.perceive import build_rotor_model, prepare_molecule
+
+    mol = prepare_molecule(Chem.MolFromSmiles("C1CCC2CCCCC2C1"))
+    AllChem.EmbedMolecule(mol, randomSeed=42)
+
+    rm = build_rotor_model(mol)
+
+    assert rm.ring_flips == []
 
 
 def test_ring_flip_in_generation():

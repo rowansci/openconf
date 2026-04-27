@@ -196,6 +196,10 @@ class ConformerConfig:
             preserved.
         collect_stats: If True, record stage timings and counters for benchmark
             analysis and attach them to the returned ensemble.
+        torsion_multitry_attempts: Number of pre-minimization torsion proposals
+            to try for clash-filtered torsion moves. The candidate with the
+            lowest clash score is kept, reducing wasted minimizations on crowded
+            intermediates. Set to 1 to recover single-proposal behavior.
     """
 
     max_out: int = 200
@@ -235,6 +239,7 @@ class ConformerConfig:
     patience: int = 150
     auto_tune_large_flexible: bool = True
     collect_stats: bool = False
+    torsion_multitry_attempts: int = 4
 
     def __post_init__(self) -> None:
         _require_int_at_least("max_out", self.max_out, 1)
@@ -263,6 +268,7 @@ class ConformerConfig:
         _require_fraction("adapt_floor", self.adapt_floor)
         _require_fraction("adapt_decay", self.adapt_decay)
         _require_int_at_least("patience", self.patience, 0)
+        _require_int_at_least("torsion_multitry_attempts", self.torsion_multitry_attempts, 1)
         _validate_move_probs(self.move_probs)
 
         if self.minimizer != "rdkit_mmff":
