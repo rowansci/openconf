@@ -1,7 +1,7 @@
 [project]
 name = "openconf"
 description = "Conformer generation for drug-like molecules"
-version = "0.0.7"
+version = "0.0.8"
 readme = "README.md"
 license = "MIT"
 authors = [{name = "Corin Wagen"}]
@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "numpy",
     "rdkit",
-    "prism-pruner>=0.0.3",
+    "prism-pruner>=0.1.2",
 ]
 
 [dependency-groups]

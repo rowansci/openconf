@@ -260,7 +260,7 @@ wheels = [
 
 [[package]]
 name = "openconf"
-version = "0.0.6"
+version = "0.0.8"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
@@ -280,7 +280,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "numpy" },
-    { name = "prism-pruner", specifier = ">=0.0.3" },
+    { name = "prism-pruner", specifier = ">=0.1.2" },
     { name = "rdkit" },
 ]
 
@@ -403,7 +403,7 @@ wheels = [
 
 [[package]]
 name = "prism-pruner"
-version = "0.0.9"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "networkx" },
@@ -411,9 +411,9 @@ dependencies = [
     { name = "scipy" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/79/61/ab30d6cbb1a65457b5636584561c5b533bf7828a1fc63b31165ce0fe79b0/prism_pruner-0.0.9.tar.gz", hash = "sha256:3ad2d9855dfc212650b35c67af0895424e13106ee69c4f4b847d5a58068dfdf0", size = 28481, upload-time = "2026-03-11T13:09:19.17Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/9d/660b3e6743a46ccf382d1182e3d93cfc02463d61dae608715ff79dad8655/prism_pruner-0.1.2.tar.gz", hash = "sha256:b7e81a512be61a78c492f20e5bfe9e82fa4aedc653f36ec108afab92178e96f8", size = 30005, upload-time = "2026-04-28T13:29:38.708Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/ef/dfb7e7b54e7b15767f0540f3351bdf46a41c1b0a89b59674c3d1be097134/prism_pruner-0.0.9-py3-none-any.whl", hash = "sha256:b12cb4b0737d26ec6bd786fdc1879f9e9ff575ed9f89fcfcc0dda43133546cdb", size = 28498, upload-time = "2026-03-11T13:09:17.372Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/79/7eb34987fae388ff3447af7b996c120b0058543f952cfd2fdc243b21e8c9/prism_pruner-0.1.2-py3-none-any.whl", hash = "sha256:f859dcde6b2a949d2740068fb426311dbe3c110ab5356a3a924a7c0b645bc6b5", size = 30483, upload-time = "2026-04-28T13:29:36.157Z" },
 ]
 
 [[package]]
