@@ -241,13 +241,19 @@ class HybridProposer:
                 params.pruneRmsThresh = -1.0
 
         embed_start = time.perf_counter()
-        conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
+        try:
+            conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
+        except RuntimeError:
+            conf_ids = []
         if not conf_ids:
             # ETKDG failed (common for organometallics where distance-bound tables
             # don't cover the metal). Fall back to random starting coordinates and
             # let UFF minimization produce a reasonable geometry.
             params.useRandomCoords = True
-            conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
+            try:
+                conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
+            except RuntimeError:
+                conf_ids = []
         self._add_time_stat("seed_embedding_time_s", time.perf_counter() - embed_start)
         if not conf_ids:
             return []

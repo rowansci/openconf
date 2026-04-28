@@ -301,6 +301,7 @@ def generate_conformers(
     config: ConformerConfig | None = None,
     preset: ConformerPreset | None = None,
     torsion_library: TorsionLibrary | None = None,
+    add_hs: bool = True,
 ) -> ConformerEnsemble:
     """Generate a diverse conformer ensemble.
 
@@ -317,6 +318,10 @@ def generate_conformers(
             exclusive with *config*; raises ValueError if both are supplied.
         torsion_library: Optional torsion library override. If omitted, uses
             the bundled cached CrystalFF-derived library.
+        add_hs: Whether to add explicit hydrogens before embedding. Set to
+            ``False`` when *mol* already has all hydrogens present (e.g. a
+            3D structure read from SDF, or a radical with explicit H atoms)
+            to prevent RDKit from inserting additional implicit H atoms.
 
     Returns:
         Generated conformers with metadata.
@@ -348,7 +353,7 @@ def generate_conformers(
         config = ConformerConfig()
 
     # Prepare molecule
-    mol = prepare_molecule(mol, add_hs=True)
+    mol = prepare_molecule(mol, add_hs=add_hs)
 
     # Build rotor model
     rotor_model = build_rotor_model(mol)
