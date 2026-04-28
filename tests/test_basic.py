@@ -727,13 +727,15 @@ def test_ring_flips_benzene_excluded():
 
 
 def test_ring_flips_mixed():
-    """Fused aromatic/saturated ring systems should not receive independent flips."""
+    """Saturated ring in a fused aromatic/saturated system gets a flip; aromatic ring does not."""
     from openconf.perceive import build_rotor_model, prepare_molecule
 
-    # tetralin: benzene fused to cyclohexane
+    # tetralin: benzene fused to cyclohexane — only the saturated ring is eligible
     mol = prepare_molecule(Chem.MolFromSmiles("C1CCc2ccccc2C1"))
     rm = build_rotor_model(mol)
-    assert len(rm.ring_flips) == 0
+    assert len(rm.ring_flips) == 1
+    assert rm.ring_flips[0].ring_size == 6
+    assert len(rm.ring_flips[0].junction_atoms) == 2
 
 
 def test_ring_info_macrocycle():
@@ -898,18 +900,62 @@ def test_ring_flip_moves_attached_subtrees():
     assert not np.allclose(before, after, atol=0.01), "Ring flip did not move attached substituent"
 
 
-def test_fused_rings_do_not_register_ring_flips():
-    """Fused ring systems should not receive independent plane-reflection flips."""
-    from rdkit.Chem import AllChem
-
+def test_fused_ring_flips_decalin():
+    """Decalin should get two ring flips, one per ring, each with two junction atoms."""
     from openconf.perceive import build_rotor_model, prepare_molecule
 
     mol = prepare_molecule(Chem.MolFromSmiles("C1CCC2CCCCC2C1"))
-    AllChem.EmbedMolecule(mol, randomSeed=42)
-
     rm = build_rotor_model(mol)
 
-    assert rm.ring_flips == []
+    assert len(rm.ring_flips) == 2
+    for flip in rm.ring_flips:
+        assert flip.ring_size == 6
+        assert len(flip.junction_atoms) == 2
+
+
+def test_fused_ring_flip_preserves_junction_atoms():
+    """Ring flip in a fused system must not move junction atoms."""
+    import numpy as np
+    from rdkit.Chem import AllChem
+
+    from openconf.config import ConformerConfig
+    from openconf.perceive import build_rotor_model, prepare_molecule
+    from openconf.propose.hybrid import HybridProposer, _copy_conformer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles("C1CCC2CCCCC2C1"))
+    AllChem.EmbedMolecule(mol, randomSeed=42)
+    rm = build_rotor_model(mol)
+    assert rm.ring_flips, "Decalin should have ring flips after fix"
+
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
+    orig_id = mol.GetConformers()[0].GetId()
+    new_id = _copy_conformer(mol, orig_id)
+
+    junction_atoms: set[int] = set()
+    for flip in rm.ring_flips:
+        junction_atoms |= flip.junction_atoms
+
+    orig_positions = {idx: np.array(mol.GetConformer(orig_id).GetAtomPosition(idx)) for idx in junction_atoms}
+
+    proposer._apply_ring_flip_move(new_id)
+
+    for idx, orig_pos in orig_positions.items():
+        new_pos = np.array(mol.GetConformer(new_id).GetAtomPosition(idx))
+        assert np.allclose(orig_pos, new_pos, atol=1e-6), f"Junction atom {idx} moved during fused ring flip"
+
+    # At least some non-junction ring atoms should have moved.
+    all_ring_atoms = {a for flip in rm.ring_flips for a in flip.ring_atoms}
+    free_atoms = all_ring_atoms - junction_atoms
+    any_moved = any(
+        not np.allclose(
+            np.array(mol.GetConformer(orig_id).GetAtomPosition(idx)),
+            np.array(mol.GetConformer(new_id).GetAtomPosition(idx)),
+            atol=0.01,
+        )
+        for idx in free_atoms
+    )
+    assert any_moved, "Ring flip should displace at least one non-junction ring atom"
 
 
 def test_ring_flip_in_generation():
@@ -919,6 +965,52 @@ def test_ring_flip_in_generation():
     config = ConformerConfig(max_out=10, n_steps=50, pool_max=100, random_seed=42)
     ens = generate_conformers("C1CCCCC1", config=config)
     assert ens.n_conformers > 0
+
+
+def test_bridged_bicyclic_norbornane_ring_flips():
+    """Norbornane's two 5-membered rings each get an envelope flip with the correct junction atoms."""
+    from openconf.perceive import build_rotor_model, prepare_molecule
+
+    mol = prepare_molecule(Chem.MolFromSmiles("C1CC2CCC1C2"))  # bicyclo[2.2.1]heptane
+    rm = build_rotor_model(mol)
+
+    assert len(rm.ring_flips) == 2
+    for flip in rm.ring_flips:
+        assert flip.ring_size == 5
+        # two bridgeheads + the one-carbon bridge = 3 junction atoms
+        assert len(flip.junction_atoms) == 3
+        # two carbons from each two-carbon bridge are free to flip
+        assert flip.ring_size - len(flip.junction_atoms) == 2
+
+
+def test_bridged_bicyclic_envelope_flip_preserves_junction_atoms():
+    """Envelope flip in norbornane must not move the bridgehead or bridge-tip atoms."""
+    import numpy as np
+    from rdkit.Chem import AllChem
+
+    from openconf.config import ConformerConfig
+    from openconf.perceive import build_rotor_model, prepare_molecule
+    from openconf.propose.hybrid import HybridProposer, _copy_conformer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles("C1CC2CCC1C2"))
+    AllChem.EmbedMolecule(mol, randomSeed=42)
+    rm = build_rotor_model(mol)
+    assert rm.ring_flips
+
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
+    orig_id = mol.GetConformers()[0].GetId()
+    new_id = _copy_conformer(mol, orig_id)
+
+    junction_atoms: set[int] = set()
+    for flip in rm.ring_flips:
+        junction_atoms |= flip.junction_atoms
+
+    orig_pos = {idx: np.array(mol.GetConformer(orig_id).GetAtomPosition(idx)) for idx in junction_atoms}
+    proposer._apply_ring_flip_move(new_id)
+
+    for idx, pos in orig_pos.items():
+        assert np.allclose(pos, mol.GetConformer(new_id).GetAtomPosition(idx), atol=1e-6), f"Junction atom {idx} moved"
 
 
 # ---------------------------------------------------------------------------

@@ -32,10 +32,13 @@ class RingFlip:
     Attributes:
         ring_atoms: Tuple of atom indices in ring traversal order.
         ring_size: Number of atoms in the ring.
+        junction_atoms: Atoms shared with other rings (ring-fusion bonds).
+            These define the reflection plane but do not move during the flip.
     """
 
     ring_atoms: tuple[int, ...]
     ring_size: int
+    junction_atoms: frozenset[int] = field(default_factory=frozenset)
 
 
 @dataclass
@@ -294,6 +297,10 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
     rings of these sizes have accessible alternative conformations (chair/boat
     for 6-membered, envelope/twist for 5-membered).
 
+    Fused rings are supported: junction atoms (shared with another ring) define
+    the reflection plane but do not move.  A ring is eligible when it has at
+    least two non-junction atoms so there is something to reflect.
+
     Args:
         mol: RDKit molecule.
         atom_rings: List of atom index tuples, one per ring.
@@ -302,13 +309,17 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
         List of RingFlip objects.
     """
     flips = []
-    ring_sets = [frozenset(ring) for ring in atom_rings]
-    for ring_idx, ring in enumerate(atom_rings):
+
+    # Atoms that belong to more than one ring are ring-fusion junction atoms.
+    atom_ring_count: dict[int, int] = {}
+    for ring in atom_rings:
+        for a in ring:
+            atom_ring_count[a] = atom_ring_count.get(a, 0) + 1
+    all_junction_atoms = frozenset(a for a, count in atom_ring_count.items() if count > 1)
+
+    for ring in atom_rings:
         size = len(ring)
         if size < 5 or size > 7:
-            continue
-        ring_set = ring_sets[ring_idx]
-        if any(len(ring_set & other) > 0 for other_idx, other in enumerate(ring_sets) if other_idx != ring_idx):
             continue
         # Skip fully aromatic rings
         if all(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
@@ -318,15 +329,33 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
         # would produce unphysical geometries.
         if any(_is_metal(mol.GetAtomWithIdx(idx)) for idx in ring):
             continue
-        flips.append(RingFlip(ring_atoms=tuple(ring), ring_size=size))
+
+        ring_junction = frozenset(ring) & all_junction_atoms
+        # Need at least one free (non-junction) atom — a single atom popping
+        # above/below the ring plane is the minimal envelope move.
+        if size - len(ring_junction) < 1:
+            continue
+
+        flips.append(RingFlip(ring_atoms=tuple(ring), ring_size=size, junction_atoms=ring_junction))
     return flips
 
 
-def _ring_flip_moving_atoms(mol: Chem.Mol, ring_atoms: tuple[int, ...]) -> frozenset[int]:
-    """Return ring atoms and attached subtrees moved by plane reflection."""
+def _ring_flip_moving_atoms(
+    mol: Chem.Mol,
+    ring_atoms: tuple[int, ...],
+    junction_atoms: frozenset[int] = frozenset(),
+) -> frozenset[int]:
+    """Return ring atoms and attached subtrees moved by plane reflection.
+
+    Junction atoms (shared with another ring) define the reflection plane but
+    do not move, so they and their extra-ring subtrees are excluded from the
+    returned set.
+    """
     ring_set = frozenset(ring_atoms)
     moving: set[int] = set()
     for ring_atom in ring_atoms:
+        if ring_atom in junction_atoms:
+            continue
         visited: set[int] = {ring_atom}
         stack = [ring_atom]
         while stack:
@@ -424,7 +453,9 @@ def filter_constrained_rotors(rotor_model: "RotorModel", constrained_atoms: froz
 
     # Ring flips: keep only flips whose full reflected atom set is constraint-free.
     free_ring_flips = [
-        rf for rf in rotor_model.ring_flips if not constrained_atoms & _ring_flip_moving_atoms(mol, rf.ring_atoms)
+        rf
+        for rf in rotor_model.ring_flips
+        if not constrained_atoms & _ring_flip_moving_atoms(mol, rf.ring_atoms, rf.junction_atoms)
     ]
 
     adj = _build_rotor_adjacency(free_rotors, mol)

@@ -54,7 +54,8 @@ class MoveExecutor:
         self.correlated_rotor_indices = [i for i, rotor in enumerate(rotor_model.rotors) if rotor.neighbors]
         self.crankable_rings = self._build_crankable_rings(mol, rotor_model)
         self.ring_flip_moving_atoms = [
-            tuple(sorted(_ring_flip_moving_atoms(mol, ring_flip.ring_atoms))) for ring_flip in rotor_model.ring_flips
+            tuple(sorted(_ring_flip_moving_atoms(mol, ring_flip.ring_atoms, ring_flip.junction_atoms)))
+            for ring_flip in rotor_model.ring_flips
         ]
         self.operators = {
             "single_rotor": self.apply_single_rotor_move,
