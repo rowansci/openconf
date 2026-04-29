@@ -261,6 +261,12 @@ class HybridProposer:
                 {int(idx): rdGeometry.Point3D(*ref_conf.GetAtomPosition(idx)) for idx in self._metal_atom_indices}
             )
 
+        # EmbedMultipleConfs clears all existing conformers even on failure, so
+        # snapshot the reference geometry now for the final fallback below.
+        _ref_positions: np.ndarray | None = (
+            self.mol.GetConformers()[0].GetPositions().copy() if self.mol.GetNumConformers() > 0 else None
+        )
+
         embed_start = time.perf_counter()
         try:
             conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
@@ -277,7 +283,16 @@ class HybridProposer:
                 conf_ids = []
         self._add_time_stat("seed_embedding_time_s", time.perf_counter() - embed_start)
         if not conf_ids:
-            return []
+            # Both ETKDG attempts failed (e.g. sandwich complexes like ferrocene whose
+            # η5/η6 bonds cause bad distance-bound triangle inequalities). Restore the
+            # saved reference geometry as the single seed for MCMM exploration.
+            if _ref_positions is not None:
+                new_conf = Chem.Conformer(self.mol.GetNumAtoms())
+                for i, pos in enumerate(_ref_positions):
+                    new_conf.SetAtomPosition(i, pos.tolist())
+                conf_ids = [self.mol.AddConformer(new_conf, assignId=True)]
+            else:
+                return []
 
         # Minimize each seed using pre-prepared MMFF props (includes fast_dielectric).
         mmff_props = getattr(self.fast_minimizer, "_mmff_props", None)
