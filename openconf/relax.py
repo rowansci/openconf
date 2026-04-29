@@ -37,6 +37,10 @@ class RDKitMMFFMinimizer:
         dielectric: Dielectric constant for electrostatics. Gas phase is 1.0;
             higher values (4-10) reduce over-strong intramolecular electrostatics
             and are more appropriate for condensed-phase conformer generation.
+        metal_atom_indices: Atom indices of metal centers. When MMFF is
+            unavailable these are pinned via UFFAddPositionConstraint so that
+            untyped metals (lanthanides, actinides, …) do not drift freely
+            during UFF minimization.
     """
 
     max_iters: int = 500
@@ -44,6 +48,7 @@ class RDKitMMFFMinimizer:
     energy_tol: float = 1e-6
     variant: str = "MMFF94s"
     dielectric: float = 4.0
+    metal_atom_indices: frozenset[int] = field(default_factory=frozenset)
     _mmff_props: object = field(default=None, init=False, repr=False)
 
     def prepare(self, mol: Chem.Mol) -> None:
@@ -75,6 +80,11 @@ class RDKitMMFFMinimizer:
                 ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(conf_id))
             if ff is None:
                 return float("inf")
+            if self._mmff_props is None and self.metal_atom_indices:
+                for m_idx in self.metal_atom_indices:
+                    ff.UFFAddPositionConstraint(int(m_idx), 0.0, 1e4)
+                    for nb in mol.GetAtomWithIdx(m_idx).GetNeighbors():
+                        ff.UFFAddDistanceConstraint(int(m_idx), int(nb.GetIdx()), False, 2.0, 3.5, 500.0)
             ff.Minimize(maxIts=int(self.max_iters))
             return float(ff.CalcEnergy())
         except (ValueError, RuntimeError):
@@ -127,11 +137,12 @@ def minimize_confs_mmff(
     ]
 
 
-def get_minimizer(name: str = "rdkit_mmff", **kwargs) -> Minimizer:
+def get_minimizer(name: str = "rdkit_mmff", metal_atom_indices: frozenset[int] = frozenset(), **kwargs) -> Minimizer:
     """Get a minimizer by name.
 
     Args:
         name: Minimizer name. Only ``"rdkit_mmff"`` is currently supported.
+        metal_atom_indices: Indices of metal atoms to exclude from MMFF typing.
         **kwargs: Additional arguments for the minimizer.
 
     Returns:
@@ -141,6 +152,6 @@ def get_minimizer(name: str = "rdkit_mmff", **kwargs) -> Minimizer:
         ValueError: If unknown minimizer name.
     """
     if name == "rdkit_mmff":
-        return RDKitMMFFMinimizer(**kwargs)
+        return RDKitMMFFMinimizer(metal_atom_indices=metal_atom_indices, **kwargs)
     else:
         raise ValueError(f"Unknown minimizer: {name}")

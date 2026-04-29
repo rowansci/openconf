@@ -130,11 +130,21 @@ class HybridProposer:
         self.config = config
         self.stats = stats
 
+        from ..perceive import _is_metal
+
+        self._metal_atom_indices: frozenset[int] = frozenset(a.GetIdx() for a in mol.GetAtoms() if _is_metal(a))
+
         self.fast_minimizer = get_minimizer(
-            config.minimizer, max_iters=config.fast_minimization_iters, dielectric=config.fast_dielectric
+            config.minimizer,
+            max_iters=config.fast_minimization_iters,
+            dielectric=config.fast_dielectric,
+            metal_atom_indices=self._metal_atom_indices,
         )
         self.full_minimizer = get_minimizer(
-            config.minimizer, max_iters=config.max_minimization_iters, dielectric=config.final_dielectric
+            config.minimizer,
+            max_iters=config.max_minimization_iters,
+            dielectric=config.final_dielectric,
+            metal_atom_indices=self._metal_atom_indices,
         )
         self.fast_minimizer.prepare(mol)
         self.full_minimizer.prepare(mol)
@@ -240,6 +250,17 @@ class HybridProposer:
             if macrocycle_tuning.disable_prune_rms:
                 params.pruneRmsThresh = -1.0
 
+        # Pin metal centers to their reference geometry during ETKDG so that
+        # atoms without RDKit distance-bound tables (lanthanides, actinides, …)
+        # do not land in random positions after embedding.
+        if self._metal_atom_indices and self.mol.GetNumConformers() > 0:
+            from rdkit.Geometry import rdGeometry
+
+            ref_conf = self.mol.GetConformers()[0]
+            params.SetCoordMap(
+                {int(idx): rdGeometry.Point3D(*ref_conf.GetAtomPosition(idx)) for idx in self._metal_atom_indices}
+            )
+
         embed_start = time.perf_counter()
         try:
             conf_ids = list(AllChem.EmbedMultipleConfs(self.mol, numConfs=n_seeds, params=params))
@@ -273,19 +294,25 @@ class HybridProposer:
             self._add_time_stat("seed_minimization_time_s", time.perf_counter() - minimize_start)
             return list(zip(conf_ids, energies, strict=True))
 
-        # Fallback: UFF
+        # Fallback: UFF — per-conformer loop so we can add metal position constraints.
         minimize_start = time.perf_counter()
-        AllChem.UFFOptimizeMoleculeConfs(self.mol, numThreads=nthreads, maxIters=max_its)
+        results: list[tuple[int, float]] = []
+        for cid in conf_ids:
+            ff = AllChem.UFFGetMoleculeForceField(self.mol, confId=cid)
+            if ff is None:
+                results.append((cid, float("inf")))
+                continue
+            for m_idx in self._metal_atom_indices:
+                ff.UFFAddPositionConstraint(int(m_idx), 0.0, 1e4)
+                for nb in self.mol.GetAtomWithIdx(m_idx).GetNeighbors():
+                    ff.UFFAddDistanceConstraint(int(m_idx), int(nb.GetIdx()), False, 2.0, 3.5, 500.0)
+            try:
+                ff.Minimize(maxIts=max_its)
+                results.append((cid, float(ff.CalcEnergy())))
+            except (ValueError, RuntimeError):
+                results.append((cid, float("inf")))
         self._add_time_stat("seed_minimization_time_s", time.perf_counter() - minimize_start)
-        return [
-            (
-                cid,
-                float(ff.CalcEnergy())
-                if (ff := AllChem.UFFGetMoleculeForceField(self.mol, confId=cid))
-                else float("inf"),
-            )
-            for cid in conf_ids
-        ]
+        return results
 
     def _reset_constrained_positions(self, mol: Chem.Mol, conf_id: int) -> None:
         """Snap constrained atoms back to their exact reference coordinates.
@@ -708,13 +735,21 @@ class HybridProposer:
                 nthreads,
             )
         else:
-            AllChem.UFFOptimizeMoleculeConfs(self._staging_mol, numThreads=nthreads, maxIters=max_its)
-            energies = [
-                float(ff.CalcEnergy())
-                if (ff := AllChem.UFFGetMoleculeForceField(self._staging_mol, confId=stage_id))
-                else float("inf")
-                for stage_id in stage_ids
-            ]
+            energies = []
+            for stage_id in stage_ids:
+                ff = AllChem.UFFGetMoleculeForceField(self._staging_mol, confId=stage_id)
+                if ff is None:
+                    energies.append(float("inf"))
+                    continue
+                for m_idx in self._metal_atom_indices:
+                    ff.UFFAddPositionConstraint(int(m_idx), 0.0, 1e4)
+                    for nb in self._staging_mol.GetAtomWithIdx(m_idx).GetNeighbors():
+                        ff.UFFAddDistanceConstraint(int(m_idx), int(nb.GetIdx()), False, 2.0, 3.5, 500.0)
+                try:
+                    ff.Minimize(maxIts=max_its)
+                    energies.append(float(ff.CalcEnergy()))
+                except (ValueError, RuntimeError):
+                    energies.append(float("inf"))
         self._add_time_stat("minimization_time_s", time.perf_counter() - minimize_start)
         commit_start = time.perf_counter()
         results, failures = batch.commit(energies)
@@ -756,12 +791,22 @@ class HybridProposer:
             mmff_props.SetMMFFDielectricConstant(dielectric)
             return minimize_confs_mmff(mol, mmff_props, final_ids, max_iters, num_threads)
 
-        # Fallback UFF
-        AllChem.UFFOptimizeMoleculeConfs(mol, numThreads=int(num_threads or 0), maxIters=int(max_iters))
+        # Fallback UFF — per-conformer loop with metal position and M-L distance constraints.
         energies = []
         for cid in final_ids:
             ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(cid))
-            energies.append(ff.CalcEnergy() if ff else float("inf"))
+            if ff is None:
+                energies.append(float("inf"))
+                continue
+            for m_idx in self._metal_atom_indices:
+                ff.UFFAddPositionConstraint(int(m_idx), 0.0, 1e4)
+                for nb in mol.GetAtomWithIdx(m_idx).GetNeighbors():
+                    ff.UFFAddDistanceConstraint(int(m_idx), int(nb.GetIdx()), False, 2.0, 3.5, 500.0)
+            try:
+                ff.Minimize(maxIts=int(max_iters))
+                energies.append(float(ff.CalcEnergy()))
+            except (ValueError, RuntimeError):
+                energies.append(float("inf"))
         return energies
 
     def full_refine_final_constrained(

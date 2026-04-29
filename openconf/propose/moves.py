@@ -68,7 +68,11 @@ class MoveExecutor:
 
     @staticmethod
     def _compute_substituent_atoms(mol: Chem.Mol, ring_atoms: frozenset[int], ring_atom: int) -> frozenset[int]:
-        """Atoms reachable from ring_atom without re-entering the same ring."""
+        """Atoms reachable from ring_atom without re-entering the same ring.
+
+        Metal centers are not traversed: dragging a coordination center as a
+        substituent of a nearby ring atom produces unphysical geometries.
+        """
         visited: set[int] = {ring_atom}
         stack = [ring_atom]
         while stack:
@@ -78,6 +82,8 @@ class MoveExecutor:
                 if idx in visited:
                     continue
                 if idx in ring_atoms and idx != ring_atom:
+                    continue
+                if _is_metal(mol.GetAtomWithIdx(idx)):
                     continue
                 visited.add(idx)
                 stack.append(idx)

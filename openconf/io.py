@@ -86,6 +86,50 @@ def write_xyz(
                 f.write(f"{atom.GetSymbol():2s} {pos.x:12.6f} {pos.y:12.6f} {pos.z:12.6f}\n")
 
 
+def read_xyz(input_path: str | Path) -> Chem.Mol:
+    """Read an XYZ file into an RDKit molecule with bond connectivity perceived.
+
+    ``Chem.MolFromXYZFile`` reads only atom positions; connectivity is inferred
+    from interatomic distances via ``rdDetermineBonds.DetermineConnectivity``
+    (distance-threshold matching, no Hückel).  Bond orders are left as single;
+    this is correct for saturated ligands and acceptable for metals where RDKit
+    lacks valence tables.
+
+    The returned molecule already has all hydrogens as explicit atoms and a
+    single conformer with the coordinates from the file.  Pass it to
+    ``generate_conformers`` with ``add_hs=False`` to avoid re-adding hydrogens.
+
+    Args:
+        input_path: Path to an XYZ file (single structure).
+
+    Returns:
+        RDKit molecule with bonds and one conformer.
+
+    Raises:
+        ValueError: If the XYZ file cannot be parsed.
+    """
+    from rdkit.Chem import rdDetermineBonds
+
+    mol = Chem.MolFromXYZFile(str(input_path))
+    if mol is None:
+        raise ValueError(f"Could not read XYZ file: {input_path}")
+
+    rw = Chem.RWMol(mol)
+    rdDetermineBonds.DetermineConnectivity(rw, useHueckel=False)
+
+    # Full sanitize first; fall back to skipping property checks for metals
+    # (some lanthanides/actinides have no valence table in RDKit).
+    try:
+        Chem.SanitizeMol(rw)
+    except (RuntimeError, ValueError):
+        Chem.SanitizeMol(
+            rw,
+            Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES,
+        )
+
+    return rw.GetMol()
+
+
 def read_sdf(input_path: str | Path) -> tuple[Chem.Mol, list[int], list[float]]:
     """Read conformers from an SDF file.
 
