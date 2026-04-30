@@ -473,6 +473,7 @@ class HybridProposer:
             constrained=self.constraint_spec is not None,
             has_ring_flips=bool(self.rotor_model.ring_flips),
             has_crankshaft=bool(self._crankable_rings),
+            has_rotors=bool(self.rotor_model.rotors),
         )
 
         total = sum(probs.values())

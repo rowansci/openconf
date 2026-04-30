@@ -198,12 +198,16 @@ def is_clash_exempt_move(move_type: str) -> bool:
     return move_type in get_runtime_tuning().clash_check.exempt_moves
 
 
+_TORSION_MOVE_TYPES: frozenset[str] = frozenset({"single_rotor", "multi_rotor", "correlated", "global_shake"})
+
+
 def resolve_move_probabilities(
     current_probs: dict[str, float],
     *,
     constrained: bool,
     has_ring_flips: bool,
     has_crankshaft: bool,
+    has_rotors: bool = True,
 ) -> dict[str, float]:
     """Return move probabilities adjusted for current availability constraints."""
     tuning = get_runtime_tuning().move_scheduling
@@ -225,6 +229,16 @@ def resolve_move_probabilities(
         fallback = tuning.availability_fallbacks[move_type]
         extra = probs.pop(move_type)
         probs[fallback] = probs.get(fallback, 0.0) + extra
+
+    if not has_rotors:
+        # Torsion moves are no-ops when the molecule has no exocyclic rotatable
+        # bonds. Redistribute their budget to the ring moves still in probs.
+        torsion_budget = sum(probs.pop(m, 0.0) for m in _TORSION_MOVE_TYPES)
+        ring_moves = {m: v for m, v in probs.items() if m not in _TORSION_MOVE_TYPES and v > 0}
+        if ring_moves and torsion_budget > 0:
+            ring_total = sum(ring_moves.values())
+            for m, w in ring_moves.items():
+                probs[m] += torsion_budget * (w / ring_total)
 
     return probs
 
