@@ -20,26 +20,17 @@ _SUPPORTED_PARENT_STRATEGIES = frozenset({"softmax", "uniform", "best"})
 _SUPPORTED_FINAL_SELECTIONS = frozenset({"energy", "diverse"})
 
 
-def _require_int_at_least(name: str, value: int, minimum: int) -> None:
-    """Validate an integer lower bound."""
+def _require_at_least(name: str, value: float, minimum: float) -> None:
     if value < minimum:
         raise ValueError(f"{name} must be >= {minimum}, got {value}.")
 
 
-def _require_optional_int_at_least(name: str, value: int | None, minimum: int) -> None:
-    """Validate an optional integer lower bound."""
+def _require_optional_at_least(name: str, value: float | None, minimum: float) -> None:
     if value is not None:
-        _require_int_at_least(name, value, minimum)
+        _require_at_least(name, value, minimum)
 
 
-def _require_float_at_least(name: str, value: float, minimum: float) -> None:
-    """Validate a floating-point lower bound."""
-    if value < minimum:
-        raise ValueError(f"{name} must be >= {minimum}, got {value}.")
-
-
-def _require_float_greater_than(name: str, value: float, minimum: float) -> None:
-    """Validate a strict floating-point lower bound."""
+def _require_greater_than(name: str, value: float, minimum: float) -> None:
     if value <= minimum:
         raise ValueError(f"{name} must be > {minimum}, got {value}.")
 
@@ -89,7 +80,7 @@ class ConstraintSpec:
     position_force_constant: float = 1000.0
 
     def __post_init__(self) -> None:
-        _require_float_greater_than("position_force_constant", self.position_force_constant, 0.0)
+        _require_greater_than("position_force_constant", self.position_force_constant, 0.0)
 
 
 @dataclass
@@ -242,33 +233,29 @@ class ConformerConfig:
     torsion_multitry_attempts: int = 4
 
     def __post_init__(self) -> None:
-        _require_int_at_least("max_out", self.max_out, 1)
-        _require_optional_int_at_least("pool_max", self.pool_max, 1)
-        _require_optional_int_at_least("n_seeds", self.n_seeds, 1)
-        _require_int_at_least("n_steps", self.n_steps, 0)
-        _require_float_at_least("energy_window_kcal", self.energy_window_kcal, 0.0)
-        _require_int_at_least("dedupe_period", self.dedupe_period, 1)
-        _require_int_at_least("shake_period", self.shake_period, 1)
-        _require_float_at_least("torsion_jitter_deg", self.torsion_jitter_deg, 0.0)
-        _require_int_at_least("num_threads", self.num_threads, 0)
-        _require_float_greater_than("clash_threshold", self.clash_threshold, 0.0)
-        _require_int_at_least("fast_minimization_iters", self.fast_minimization_iters, 0)
-        _require_int_at_least("max_minimization_iters", self.max_minimization_iters, 0)
-        _require_float_greater_than(
-            "parent_softmax_temperature_kcal",
-            self.parent_softmax_temperature_kcal,
-            0.0,
-        )
-        _require_int_at_least("seed_n_per_rotor", self.seed_n_per_rotor, 1)
-        _require_optional_int_at_least("seed_minimization_iters", self.seed_minimization_iters, 0)
-        _require_int_at_least("minimize_batch_size", self.minimize_batch_size, 1)
-        _require_float_greater_than("fast_dielectric", self.fast_dielectric, 0.0)
-        _require_float_greater_than("final_dielectric", self.final_dielectric, 0.0)
+        _require_at_least("max_out", self.max_out, 1)
+        _require_optional_at_least("pool_max", self.pool_max, 1)
+        _require_optional_at_least("n_seeds", self.n_seeds, 1)
+        _require_at_least("n_steps", self.n_steps, 0)
+        _require_at_least("energy_window_kcal", self.energy_window_kcal, 0.0)
+        _require_at_least("dedupe_period", self.dedupe_period, 1)
+        _require_at_least("shake_period", self.shake_period, 1)
+        _require_at_least("torsion_jitter_deg", self.torsion_jitter_deg, 0.0)
+        _require_at_least("num_threads", self.num_threads, 0)
+        _require_greater_than("clash_threshold", self.clash_threshold, 0.0)
+        _require_at_least("fast_minimization_iters", self.fast_minimization_iters, 0)
+        _require_at_least("max_minimization_iters", self.max_minimization_iters, 0)
+        _require_greater_than("parent_softmax_temperature_kcal", self.parent_softmax_temperature_kcal, 0.0)
+        _require_at_least("seed_n_per_rotor", self.seed_n_per_rotor, 1)
+        _require_optional_at_least("seed_minimization_iters", self.seed_minimization_iters, 0)
+        _require_at_least("minimize_batch_size", self.minimize_batch_size, 1)
+        _require_greater_than("fast_dielectric", self.fast_dielectric, 0.0)
+        _require_greater_than("final_dielectric", self.final_dielectric, 0.0)
         _require_fraction("adapt_blend", self.adapt_blend)
         _require_fraction("adapt_floor", self.adapt_floor)
         _require_fraction("adapt_decay", self.adapt_decay)
-        _require_int_at_least("patience", self.patience, 0)
-        _require_int_at_least("torsion_multitry_attempts", self.torsion_multitry_attempts, 1)
+        _require_at_least("patience", self.patience, 0)
+        _require_at_least("torsion_multitry_attempts", self.torsion_multitry_attempts, 1)
         _validate_move_probs(self.move_probs)
 
         if self.minimizer != "rdkit_mmff":

@@ -6,7 +6,6 @@ Combines torsion library biasing with MCMM-style exploration.
 import dataclasses
 import random
 import time
-from typing import TYPE_CHECKING
 
 import numpy as np
 from rdkit import Chem
@@ -33,9 +32,6 @@ from .seeding import (
     resolve_seed_plan,
 )
 from .stats import GenerationStat, new_generation_stats, populate_effective_config_stats
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 __all__ = [
     "HybridProposer",
@@ -150,33 +146,25 @@ class HybridProposer:
         self.full_minimizer.prepare(mol)
 
         self._moves = MoveExecutor(mol, rotor_model, torsion_lib, config)
-        self._rotor_angles = self._moves._rotor_angles
-        self._correlated_rotor_indices = self._moves.correlated_rotor_indices
-        self._crankable_rings = self._moves.crankable_rings
 
-        # Precompute non-bonded pair mask for fast numpy clash detection.
         self._nonbonded_mask: np.ndarray = build_nonbonded_mask(mol)
         self._clash_threshold2: float = config.clash_threshold**2
         self._clash_checker = ClashChecker(mol, self._nonbonded_mask, self._clash_threshold2)
 
-        # Staging mol for batch minimization: same topology, no conformers.
-        # Candidates are isolated here to avoid minimizing pool members.
+        # separate staging mol prevents batch minimization from touching pool conformers
         self._staging_mol: Chem.RWMol = Chem.RWMol(mol)
         self._staging_mol.RemoveAllConformers()
         self._staging_mmff_props = AllChem.MMFFGetMoleculeProperties(self._staging_mol, mmffVariant="MMFF94s")
         if self._staging_mmff_props is not None:
             self._staging_mmff_props.SetMMFFDielectricConstant(config.fast_dielectric)
 
-        # Store reference positions for constrained atoms so we can snap them
-        # back to exactly the starting pose after each minimization. The stiff
-        # position restraints keep drift tiny, but this eliminates it entirely.
+        # snap constrained atoms back exactly after each minimization to eliminate restraint drift
         self._constrained_ref_pos: dict[int, np.ndarray] = {}
         if constraint_spec is not None and mol.GetNumConformers() > 0:
             ref_conf = mol.GetConformer(mol.GetConformers()[0].GetId())
             for idx in constraint_spec.constrained_atoms:
                 self._constrained_ref_pos[idx] = np.array(ref_conf.GetAtomPosition(idx))
 
-        # Set random seed
         if config.random_seed is not None:
             random.seed(config.random_seed)
             np.random.seed(config.random_seed)
@@ -193,14 +181,7 @@ class HybridProposer:
         self._move_attempts: dict[str, float] = dict.fromkeys(config.move_probs, 0.0)
         self._move_rewards: dict[str, float] = dict.fromkeys(config.move_probs, 0.0)
         self._pending_tags: dict[int, str] = {}
-        self._move_operators: dict[str, Callable[[int], None]] = {
-            "single_rotor": self._apply_single_rotor_move,
-            "multi_rotor": self._apply_multi_rotor_move,
-            "correlated": self._apply_correlated_move,
-            "global_shake": self._apply_global_shake,
-            "ring_flip": self._apply_ring_flip_move,
-            "crankshaft": self._apply_crankshaft_move,
-        }
+        self._move_operators = self._moves.operators
 
     def _increment_stat(self, key: str, amount: int = 1) -> None:
         """Increment an integer stat when instrumentation is enabled."""
@@ -309,23 +290,8 @@ class HybridProposer:
             self._add_time_stat("seed_minimization_time_s", time.perf_counter() - minimize_start)
             return list(zip(conf_ids, energies, strict=True))
 
-        # Fallback: UFF — per-conformer loop so we can add metal position constraints.
         minimize_start = time.perf_counter()
-        results: list[tuple[int, float]] = []
-        for cid in conf_ids:
-            ff = AllChem.UFFGetMoleculeForceField(self.mol, confId=cid)
-            if ff is None:
-                results.append((cid, float("inf")))
-                continue
-            for m_idx in self._metal_atom_indices:
-                ff.UFFAddPositionConstraint(int(m_idx), 0.0, 1e4)
-                for nb in self.mol.GetAtomWithIdx(m_idx).GetNeighbors():
-                    ff.UFFAddDistanceConstraint(int(m_idx), int(nb.GetIdx()), False, 2.0, 3.5, 500.0)
-            try:
-                ff.Minimize(maxIts=max_its)
-                results.append((cid, float(ff.CalcEnergy())))
-            except (ValueError, RuntimeError):
-                results.append((cid, float("inf")))
+        results = [(cid, self._minimize_uff_single(self.mol, cid, max_its)) for cid in conf_ids]
         self._add_time_stat("seed_minimization_time_s", time.perf_counter() - minimize_start)
         return results
 
@@ -345,6 +311,21 @@ class HybridProposer:
         for idx, pos in self._constrained_ref_pos.items():
             conf.SetAtomPosition(idx, pos.tolist())
 
+    def _minimize_uff_single(self, mol: Chem.Mol, conf_id: int, max_its: int) -> float:
+        """UFF-minimize one conformer with metal position/distance constraints."""
+        ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(conf_id))
+        if ff is None:
+            return float("inf")
+        for m_idx in self._metal_atom_indices:
+            ff.UFFAddPositionConstraint(int(m_idx), 0.0, 1e4)
+            for nb in mol.GetAtomWithIdx(m_idx).GetNeighbors():
+                ff.UFFAddDistanceConstraint(int(m_idx), int(nb.GetIdx()), False, 2.0, 3.5, 500.0)
+        try:
+            ff.Minimize(maxIts=max_its)
+            return float(ff.CalcEnergy())
+        except (ValueError, RuntimeError):
+            return float("inf")
+
     def seed_from_conformer(self, conf_id: int) -> list[tuple[int, float]]:
         """Use an existing conformer as the sole seed (constrained mode).
 
@@ -359,6 +340,44 @@ class HybridProposer:
         """
         energy = self._minimize_constrained(self.mol, conf_id, use_fast=True)
         if not np.isfinite(energy):
+            return []
+        return [(conf_id, energy)]
+
+    def seed_from_input_conformer(self, positions: np.ndarray) -> list[tuple[int, float]]:
+        """Seed from a pre-captured input conformer (standard unconstrained mode).
+
+        Adds a new conformer to self.mol from the given positions and
+        fast-minimizes it without position restraints.  Any atoms beyond
+        len(positions) (e.g. hydrogens added after the conformer was captured)
+        start at the origin and are relaxed by minimization.
+
+        Args:
+            positions: Array of shape (n_atoms, 3) with atom coordinates.
+
+        Returns:
+            List of one (conf_id, energy_kcal) tuple, or empty list on failure.
+        """
+        n_atoms = self.mol.GetNumAtoms()
+        conf = Chem.Conformer(n_atoms)
+        for i in range(min(len(positions), n_atoms)):
+            conf.SetAtomPosition(i, positions[i].tolist())
+        conf_id = self.mol.AddConformer(conf, assignId=True)
+
+        mmff_props = getattr(self.fast_minimizer, "_mmff_props", None)
+        max_its = int(
+            self.config.seed_minimization_iters
+            if self.config.seed_minimization_iters is not None
+            else self.fast_minimizer.max_iters
+        )
+        nthreads = int(self.config.num_threads or 0)
+
+        if mmff_props is not None:
+            energy = minimize_confs_mmff(self.mol, mmff_props, [conf_id], max_its, nthreads)[0]
+        else:
+            energy = self._minimize_uff_single(self.mol, conf_id, max_its)
+
+        if not np.isfinite(energy):
+            self.mol.RemoveConformer(conf_id)
             return []
         return [(conf_id, energy)]
 
@@ -423,34 +442,6 @@ class HybridProposer:
 
         return (new_conf_id, energy, f"hybrid_{move_type}")
 
-    def _sample_angle(self, rotor_idx: int) -> float:
-        """Sample an angle from the torsion library."""
-        return self._moves.sample_angle(rotor_idx)
-
-    def _apply_single_rotor_move(self, conf_id: int) -> None:
-        """Apply a single rotor move."""
-        self._moves.apply_single_rotor_move(conf_id)
-
-    def _apply_multi_rotor_move(self, conf_id: int, n_rotors: int = 3) -> None:
-        """Apply multiple independent rotor moves."""
-        self._moves.apply_multi_rotor_move(conf_id, n_rotors=n_rotors)
-
-    def _apply_correlated_move(self, conf_id: int) -> None:
-        """Apply a correlated move (change rotor and its neighbors)."""
-        self._moves.apply_correlated_move(conf_id)
-
-    def _apply_global_shake(self, conf_id: int) -> None:
-        """Apply a global shake (change many rotors)."""
-        self._moves.apply_global_shake(conf_id)
-
-    def _apply_crankshaft_move(self, conf_id: int) -> None:
-        """Rotate an arc of ring atoms about the axis through two anchor atoms."""
-        self._moves.apply_crankshaft_move(conf_id)
-
-    def _apply_ring_flip_move(self, conf_id: int) -> None:
-        """Apply a ring flip to a randomly chosen non-aromatic ring."""
-        self._moves.apply_ring_flip_move(conf_id)
-
     def _select_move_type(self, step: int) -> str:
         """Select move type based on probabilities and step count.
 
@@ -472,7 +463,7 @@ class HybridProposer:
             self._current_move_probs,
             constrained=self.constraint_spec is not None,
             has_ring_flips=bool(self.rotor_model.ring_flips),
-            has_crankshaft=bool(self._crankable_rings),
+            has_crankshaft=bool(self._moves.crankable_rings),
             has_rotors=bool(self.rotor_model.rotors),
         )
 
@@ -583,20 +574,13 @@ class HybridProposer:
         continues.
         """
         base = self._base_move_probs
-        sampled_rates: list[float] = []
+        rates: dict[str, float] = {}
         for m in base:
             att = self._move_attempts.get(m, 0.0)
             if att > 0:
-                sampled_rates.append(self._move_rewards.get(m, 0.0) / att)
-        neutral = sum(sampled_rates) / len(sampled_rates) if sampled_rates else 1.0
-
-        empirical: dict[str, float] = {}
-        for m in base:
-            att = self._move_attempts.get(m, 0.0)
-            if att > 0:
-                empirical[m] = self._move_rewards.get(m, 0.0) / att
-            else:
-                empirical[m] = neutral
+                rates[m] = self._move_rewards.get(m, 0.0) / att
+        neutral = sum(rates.values()) / len(rates) if rates else 1.0
+        empirical = {m: rates.get(m, neutral) for m in base}
 
         total = sum(empirical.values())
         if total <= 0:
@@ -722,7 +706,6 @@ class HybridProposer:
 
         batch_size = self.config.minimize_batch_size
 
-        # 1. Generate candidates on self.mol (move applied, clash-checked).
         candidates: list[tuple[int, str]] = []
         for i in range(batch_size):
             result = self._generate_candidate(pool, step + i)
@@ -737,7 +720,6 @@ class HybridProposer:
         self._add_time_stat("batch_staging_time_s", time.perf_counter() - staging_start)
         stage_ids = batch.stage_ids
 
-        # 2. Minimize staging conformers using pre-prepared props (includes fast_dielectric).
         nthreads = int(self.config.num_threads or 0)
         max_its = int(self.fast_minimizer.max_iters)
         self._increment_stat("n_minimization_calls", len(stage_ids))
@@ -751,21 +733,7 @@ class HybridProposer:
                 nthreads,
             )
         else:
-            energies = []
-            for stage_id in stage_ids:
-                ff = AllChem.UFFGetMoleculeForceField(self._staging_mol, confId=stage_id)
-                if ff is None:
-                    energies.append(float("inf"))
-                    continue
-                for m_idx in self._metal_atom_indices:
-                    ff.UFFAddPositionConstraint(int(m_idx), 0.0, 1e4)
-                    for nb in self._staging_mol.GetAtomWithIdx(m_idx).GetNeighbors():
-                        ff.UFFAddDistanceConstraint(int(m_idx), int(nb.GetIdx()), False, 2.0, 3.5, 500.0)
-                try:
-                    ff.Minimize(maxIts=max_its)
-                    energies.append(float(ff.CalcEnergy()))
-                except (ValueError, RuntimeError):
-                    energies.append(float("inf"))
+            energies = [self._minimize_uff_single(self._staging_mol, sid, max_its) for sid in stage_ids]
         self._add_time_stat("minimization_time_s", time.perf_counter() - minimize_start)
         commit_start = time.perf_counter()
         results, failures = batch.commit(energies)
@@ -807,23 +775,7 @@ class HybridProposer:
             mmff_props.SetMMFFDielectricConstant(dielectric)
             return minimize_confs_mmff(mol, mmff_props, final_ids, max_iters, num_threads)
 
-        # Fallback UFF — per-conformer loop with metal position and M-L distance constraints.
-        energies = []
-        for cid in final_ids:
-            ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(cid))
-            if ff is None:
-                energies.append(float("inf"))
-                continue
-            for m_idx in self._metal_atom_indices:
-                ff.UFFAddPositionConstraint(int(m_idx), 0.0, 1e4)
-                for nb in mol.GetAtomWithIdx(m_idx).GetNeighbors():
-                    ff.UFFAddDistanceConstraint(int(m_idx), int(nb.GetIdx()), False, 2.0, 3.5, 500.0)
-            try:
-                ff.Minimize(maxIts=int(max_iters))
-                energies.append(float(ff.CalcEnergy()))
-            except (ValueError, RuntimeError):
-                energies.append(float("inf"))
-        return energies
+        return [self._minimize_uff_single(mol, cid, int(max_iters)) for cid in final_ids]
 
     def full_refine_final_constrained(
         self,
@@ -855,12 +807,13 @@ class HybridProposer:
                 mol.RemoveConformer(conf.GetId())
 
         props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant="MMFF94s")
+        if props is not None:
+            props.SetMMFFDielectricConstant(dielectric)
         energies: list[float] = []
 
         for cid in final_ids:
             try:
                 if props is not None:
-                    props.SetMMFFDielectricConstant(dielectric)
                     ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=int(cid))
                     if ff is None:
                         energies.append(float("inf"))
@@ -939,7 +892,6 @@ def run_hybrid_generation(
 
     seed_start = time.perf_counter()
     if constraint_spec is not None:
-        # Constrained mode: seed from the single starting conformer already in mol.
         existing_ids = [c.GetId() for c in mol.GetConformers()]
         if not existing_ids:
             raise ValueError(
@@ -948,8 +900,9 @@ def run_hybrid_generation(
             )
         seeds = proposer.seed_from_conformer(existing_ids[0])
         seed_source = "seed_pose"
+        input_positions = None
     else:
-        # Standard mode: ETKDG seeding.
+        input_positions = mol.GetConformers()[0].GetPositions().copy() if mol.GetNumConformers() > 0 else None
         seeds = proposer.generate_seeds(seed_plan.n_seeds, prune_rms_thresh=seed_plan.prune_rms_thresh)
         seed_source = "seed_etkdg"
     if stats:
@@ -959,9 +912,10 @@ def run_hybrid_generation(
     for conf_id, energy in seeds:
         pool.insert(conf_id, energy, source=seed_source)
 
-    # Run exploration.
-    # Batch mode: accumulate minimize_batch_size proposals, minimize in parallel.
-    # Sequential mode (batch_size=1): original one-at-a-time behaviour.
+    if input_positions is not None:
+        for conf_id, energy in proposer.seed_from_input_conformer(input_positions):
+            pool.insert(conf_id, energy, source="seed_input")
+
     batch_size = effective_config.minimize_batch_size
     step = 0
     stagnation = 0
@@ -1013,7 +967,6 @@ def run_hybrid_generation(
                 stats["n_dedupe_removed"] = int(stats["n_dedupe_removed"]) + removed
             proposer.record_dedupe_outcome(set(pool.conf_ids))
 
-    # Final selection
     final_selection_start = time.perf_counter()
     final_ids = pool.select_final()
     if stats:
@@ -1021,7 +974,6 @@ def run_hybrid_generation(
         stats["n_final_selected"] = len(final_ids)
         stats["n_steps_executed"] = step
 
-    # Full refinement on the final set (optional — skip for docking-prep workflows).
     if effective_config.do_final_refine:
         final_refine_start = time.perf_counter()
         if constraint_spec is not None:
@@ -1039,16 +991,14 @@ def run_hybrid_generation(
         if stats:
             stats["final_refine_time_s"] = time.perf_counter() - final_refine_start
     else:
-        # Return the fast-minimized energies already stored in the pool.
+        # return the fast-minimized energies already stored in the pool
         energy_map = {
             cid: (rec.energy_kcal if rec.energy_kcal is not None else float("inf")) for cid, rec in pool.records.items()
         }
         final_energies = [energy_map.get(cid, float("inf")) for cid in final_ids]
 
-    # Clean up: remove non-selected conformers
-    all_ids = set(pool.conf_ids)
     final_set = set(final_ids)
-    for cid in all_ids - final_set:
+    for cid in set(pool.conf_ids) - final_set:
         mol.RemoveConformer(cid)
 
     if stats:
@@ -1096,6 +1046,7 @@ def run_low_flex_generation(
     pool = ConformerPool(mol, config)
 
     seed_start = time.perf_counter()
+    input_positions = mol.GetConformers()[0].GetPositions().copy() if mol.GetNumConformers() > 0 else None
     seeds = proposer.generate_seeds(seed_plan.n_seeds, prune_rms_thresh=seed_plan.prune_rms_thresh)
     if stats:
         stats["seed_time_s"] = time.perf_counter() - seed_start
@@ -1110,6 +1061,11 @@ def run_low_flex_generation(
             if stats:
                 stats["n_pool_rejections"] = int(stats["n_pool_rejections"]) + 1
             mol.RemoveConformer(conf_id)
+
+    if input_positions is not None:
+        for conf_id, energy in proposer.seed_from_input_conformer(input_positions):
+            if not pool.insert(conf_id, energy, source="seed_input"):
+                mol.RemoveConformer(conf_id)
 
     final_selection_start = time.perf_counter()
     final_ids = pool.select_final()
@@ -1135,9 +1091,8 @@ def run_low_flex_generation(
         }
         final_energies = [energy_map.get(cid, float("inf")) for cid in final_ids]
 
-    all_ids = set(pool.conf_ids)
     final_set = set(final_ids)
-    for cid in all_ids - final_set:
+    for cid in set(pool.conf_ids) - final_set:
         mol.RemoveConformer(cid)
 
     if stats:

@@ -239,13 +239,10 @@ def _build_rotor_adjacency(rotors: list[Rotor], mol: Chem.Mol) -> list[list[int]
     n = len(rotors)
     adj: list[list[int]] = [[] for _ in range(n)]
 
-    # Build atom to rotor mapping
     atom_to_rotors: dict[int, list[int]] = {}
     for i, rotor in enumerate(rotors):
         for atom_idx in rotor.atom_idxs:
-            if atom_idx not in atom_to_rotors:
-                atom_to_rotors[atom_idx] = []
-            atom_to_rotors[atom_idx].append(i)
+            atom_to_rotors.setdefault(atom_idx, []).append(i)
 
     # Rotors sharing an atom are adjacent
     for i, rotor in enumerate(rotors):
@@ -483,12 +480,7 @@ def build_rotor_model(mol: Chem.Mol) -> RotorModel:
     Returns:
         RotorModel containing rotor information.
     """
-    # Get rotatable bonds using RDKit
     rot_bonds = mol.GetSubstructMatches(Chem.MolFromSmarts("[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]"))
-
-    # Alternative: use Lipinski.NumRotatableBonds for count only
-    # But we need the actual bonds, so we use the SMARTS approach
-
     rotors: list[Rotor] = []
     seen_bonds = set()
 
@@ -513,26 +505,20 @@ def build_rotor_model(mol: Chem.Mol) -> RotorModel:
         if _is_metal(mol.GetAtomWithIdx(atom_i)) and _is_metal(mol.GetAtomWithIdx(atom_j)):
             continue
 
-        # Get dihedral atoms
         dihedral = _get_dihedral_atoms(mol, bond_idx)
         if dihedral is None:
             continue
-
-        # Classify the rotor
-        rotor_type = _classify_rotor(mol, bond)
 
         rotor = Rotor(
             bond_idx=bond_idx,
             atom_idxs=(atom_i, atom_j),
             dihedral_atoms=dihedral,
-            rotor_type=rotor_type,
+            rotor_type=_classify_rotor(mol, bond),
         )
         rotors.append(rotor)
 
-    # Build adjacency
     adj = _build_rotor_adjacency(rotors, mol)
 
-    # Ring info
     atom_rings = list(mol.GetRingInfo().AtomRings())
     ring_sizes = [len(r) for r in atom_rings]
     max_ring_size = max(ring_sizes, default=0)
@@ -544,10 +530,7 @@ def build_rotor_model(mol: Chem.Mol) -> RotorModel:
         "has_small_ring": any(s <= 7 for s in ring_sizes),
     }
 
-    # Ring flips: non-aromatic rings of size 5-7
     ring_flips = _find_ring_flips(mol, atom_rings)
-
-    # Heavy atom indices
     heavy_atom_indices = [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1]
 
     return RotorModel(

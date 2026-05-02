@@ -863,7 +863,7 @@ def test_ring_flip_changes_coords():
     orig_id = mol.GetConformers()[0].GetId()
     new_id = _copy_conformer(mol, orig_id)
 
-    proposer._apply_ring_flip_move(new_id)
+    proposer._moves.apply_ring_flip_move(new_id)
 
     orig_pos = np.array([list(mol.GetConformer(orig_id).GetAtomPosition(i)) for i in rm.ring_flips[0].ring_atoms])
     new_pos = np.array([list(mol.GetConformer(new_id).GetAtomPosition(i)) for i in rm.ring_flips[0].ring_atoms])
@@ -894,7 +894,7 @@ def test_ring_flip_moves_attached_subtrees():
     methyl_idx = 0
 
     before = np.array(mol.GetConformer(orig_id).GetAtomPosition(methyl_idx))
-    proposer._apply_ring_flip_move(new_id)
+    proposer._moves.apply_ring_flip_move(new_id)
     after = np.array(mol.GetConformer(new_id).GetAtomPosition(methyl_idx))
 
     assert not np.allclose(before, after, atol=0.01), "Ring flip did not move attached substituent"
@@ -938,7 +938,7 @@ def test_fused_ring_flip_preserves_junction_atoms():
 
     orig_positions = {idx: np.array(mol.GetConformer(orig_id).GetAtomPosition(idx)) for idx in junction_atoms}
 
-    proposer._apply_ring_flip_move(new_id)
+    proposer._moves.apply_ring_flip_move(new_id)
 
     for idx, orig_pos in orig_positions.items():
         new_pos = np.array(mol.GetConformer(new_id).GetAtomPosition(idx))
@@ -1007,7 +1007,7 @@ def test_bridged_bicyclic_envelope_flip_preserves_junction_atoms():
         junction_atoms |= flip.junction_atoms
 
     orig_pos = {idx: np.array(mol.GetConformer(orig_id).GetAtomPosition(idx)) for idx in junction_atoms}
-    proposer._apply_ring_flip_move(new_id)
+    proposer._moves.apply_ring_flip_move(new_id)
 
     for idx, pos in orig_pos.items():
         assert np.allclose(pos, mol.GetConformer(new_id).GetAtomPosition(idx), atol=1e-6), f"Junction atom {idx} moved"
@@ -1047,7 +1047,7 @@ def test_metal_ligand_flat_angles():
 
     metal_indices = [i for i, r in enumerate(rm.rotors) if r.rotor_type == "metal_ligand"]
     for idx in metal_indices:
-        angles_arr, weights_arr = proposer._rotor_angles[idx]
+        angles_arr, weights_arr = proposer._moves._rotor_angles[idx]
         assert len(angles_arr) == 12
         assert np.allclose(weights_arr, 1.0 / 12.0)
         # Equally spaced across [0, 360)

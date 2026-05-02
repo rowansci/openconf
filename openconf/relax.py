@@ -153,5 +153,4 @@ def get_minimizer(name: str = "rdkit_mmff", metal_atom_indices: frozenset[int] =
     """
     if name == "rdkit_mmff":
         return RDKitMMFFMinimizer(metal_atom_indices=metal_atom_indices, **kwargs)
-    else:
-        raise ValueError(f"Unknown minimizer: {name}")
+    raise ValueError(f"Unknown minimizer: {name}")

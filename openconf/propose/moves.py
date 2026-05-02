@@ -11,6 +11,8 @@ from rdkit.Chem import rdMolTransforms
 from ..perceive import RotorModel, _is_metal, _ring_flip_moving_atoms
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from rdkit import Chem
 
     from ..config import ConformerConfig
@@ -57,7 +59,7 @@ class MoveExecutor:
             tuple(sorted(_ring_flip_moving_atoms(mol, ring_flip.ring_atoms, ring_flip.junction_atoms)))
             for ring_flip in rotor_model.ring_flips
         ]
-        self.operators = {
+        self.operators: dict[str, Callable[[int], None]] = {
             "single_rotor": self.apply_single_rotor_move,
             "multi_rotor": self.apply_multi_rotor_move,
             "correlated": self.apply_correlated_move,

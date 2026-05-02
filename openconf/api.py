@@ -57,15 +57,8 @@ class ConformerEnsemble:
         Returns:
             List of (x, y, z) tuples.
         """
-        conf_id = self.records[idx].conf_id
-        conf = self.mol.GetConformer(conf_id)
-
-        coords = []
-        for i in range(self.mol.GetNumAtoms()):
-            pos = conf.GetAtomPosition(i)
-            coords.append((pos.x, pos.y, pos.z))
-
-        return coords
+        conf = self.mol.GetConformer(self.records[idx].conf_id)
+        return [(p.x, p.y, p.z) for p in (conf.GetAtomPosition(i) for i in range(self.mol.GetNumAtoms()))]
 
     def to_sdf(self, output_path: str, include_metadata: bool = True) -> None:
         """Write ensemble to SDF file.
@@ -340,25 +333,19 @@ def generate_conformers(
     if config is not None and preset is not None:
         raise ValueError("Specify at most one of 'config' or 'preset', not both.")
 
-    # Handle SMILES input
     if isinstance(mol, str):
         from .io import smiles_to_mol
 
         mol = smiles_to_mol(mol)
 
-    # Resolve config
     if preset is not None:
         config = preset_config(preset)
     elif config is None:
         config = ConformerConfig()
 
-    # Prepare molecule
     mol = prepare_molecule(mol, add_hs=add_hs)
-
-    # Build rotor model
     rotor_model = build_rotor_model(mol)
 
-    # Run generation based on method
     if method == "hybrid":
         low_flex_tuning = get_runtime_tuning().low_flex_path
         use_low_flex_path = (
@@ -372,7 +359,6 @@ def generate_conformers(
     else:
         raise ValueError(f"Unknown method: {method}. Available: 'hybrid'")
 
-    # Build ensemble
     records = [
         ConformerRecord(
             conf_id=cid,
@@ -443,7 +429,6 @@ def generate_conformers_from_pose(
             "Supply the MCS-aligned pose as conformer 0."
         )
 
-    # Resolve config — default to "analogue" preset for this entry point.
     if config is not None:
         resolved_config = dataclasses.replace(config, constraint_spec=None)
     elif preset is not None:
@@ -451,10 +436,7 @@ def generate_conformers_from_pose(
     else:
         resolved_config = preset_config("analogue")
 
-    # Attach the constraint spec (overrides any constraint_spec already in config).
     resolved_config.constraint_spec = ConstraintSpec(constrained_atoms=frozenset(constrained_atoms))
-
-    # Prepare molecule — AddHs is a no-op if Hs are already present.
     prepped_mol = prepare_molecule(mol, add_hs=True)
 
     rotor_model = build_rotor_model(prepped_mol)

@@ -99,8 +99,8 @@ def test_crankshaft_detected_on_macrocycle():
     rm = build_rotor_model(mol)
     proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
 
-    assert len(proposer._crankable_rings) == 1
-    ring, subtrees = proposer._crankable_rings[0]
+    assert len(proposer._moves.crankable_rings) == 1
+    ring, subtrees = proposer._moves.crankable_rings[0]
     assert len(ring) == 12
     assert len(subtrees) == 12
     # Each ring C in cycloalkane carries itself + 2 H = 3 atoms in its subtree.
@@ -118,7 +118,7 @@ def test_crankshaft_preserves_anchor_bonds():
     proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
 
     orig_id = mol.GetConformers()[0].GetId()
-    ring = proposer._crankable_rings[0][0]
+    ring = proposer._moves.crankable_rings[0][0]
 
     # Bond length between each consecutive pair of ring atoms, before.
     def bond_lengths(cid: int) -> list[float]:
@@ -131,7 +131,7 @@ def test_crankshaft_preserves_anchor_bonds():
     # Apply many crankshafts and check bond lengths never drift (within 1e-6).
     for _ in range(20):
         new_id = _copy_conformer(mol, orig_id)
-        proposer._apply_crankshaft_move(new_id)
+        proposer._moves.apply_crankshaft_move(new_id)
         after = bond_lengths(new_id)
         assert len(before) == len(after)
         for b, a in zip(before, after, strict=True):
@@ -155,7 +155,7 @@ def test_crankshaft_actually_moves_atoms():
     moved_counts = []
     for _ in range(10):
         new_id = _copy_conformer(mol, orig_id)
-        proposer._apply_crankshaft_move(new_id)
+        proposer._moves.apply_crankshaft_move(new_id)
         new_pos = mol.GetConformer(new_id).GetPositions()
         moved_counts.append(int(np.any(np.abs(new_pos - orig_pos) > 0.01, axis=1).sum()))
         mol.RemoveConformer(new_id)
@@ -172,7 +172,7 @@ def test_crankshaft_absent_on_aromatic_ring():
     AllChem.EmbedMolecule(mol, randomSeed=1)
     rm = build_rotor_model(mol)
     proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig())
-    assert proposer._crankable_rings == []
+    assert proposer._moves.crankable_rings == []
 
 
 def test_macrocycle_seed_prune_disabled():
