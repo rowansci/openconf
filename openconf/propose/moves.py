@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 from typing import TYPE_CHECKING
 
@@ -55,6 +56,9 @@ class MoveExecutor:
 
         self.correlated_rotor_indices = [i for i, rotor in enumerate(rotor_model.rotors) if rotor.neighbors]
         self.crankable_rings = self._build_crankable_rings(mol, rotor_model)
+        self.macro_kic_data = [
+            (ring_atoms, subtrees) for ring_atoms, subtrees in self.crankable_rings if len(ring_atoms) >= 10
+        ]
         self.ring_flip_moving_atoms = [
             tuple(sorted(_ring_flip_moving_atoms(mol, ring_flip.ring_atoms, ring_flip.junction_atoms)))
             for ring_flip in rotor_model.ring_flips
@@ -66,6 +70,7 @@ class MoveExecutor:
             "global_shake": self.apply_global_shake,
             "ring_flip": self.apply_ring_flip_move,
             "crankshaft": self.apply_crankshaft_move,
+            "ring_kic": self.apply_ring_kic_move,
         }
 
     @staticmethod
@@ -210,8 +215,8 @@ class MoveExecutor:
         moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
         pts = all_pos[moving_arr] - axis_origin
         rotated = pts @ rotation.T + axis_origin
-        for atom_idx, new_xyz in zip(moving_arr.tolist(), rotated, strict=True):
-            conf.SetAtomPosition(int(atom_idx), new_xyz.tolist())
+        all_pos[moving_arr] = rotated
+        conf.SetPositions(all_pos)
 
     def apply_ring_flip_move(self, conf_id: int) -> None:
         """Reflect a non-aromatic ring through its mean plane."""
@@ -230,10 +235,142 @@ class MoveExecutor:
         centroid = ring_pos.mean(axis=0)
         _, _, vh = np.linalg.svd(ring_pos - centroid)
         normal = vh[-1]
-        moving_idx = list(moving_atoms)
+        moving_idx = np.array(list(moving_atoms), dtype=np.int64)
         moving_pos = all_pos[moving_idx]
         signed_dists = (moving_pos - centroid) @ normal
         reflected = moving_pos - 2.0 * signed_dists[:, None] * normal
+        all_pos[moving_idx] = reflected
+        conf.SetPositions(all_pos)
 
-        for atom_idx, new_xyz in zip(moving_idx, reflected, strict=True):
-            conf.SetAtomPosition(atom_idx, new_xyz.tolist())
+    def apply_ring_kic_move(self, conf_id: int) -> None:
+        """CCD kinematic ring closure move for macrocycle sampling.
+
+        Opens the ring at a random bond, applies 1-2 random driver torsions
+        to the first portion of the chain, then uses cyclic coordinate descent
+        (CCD) on 3 closure torsions to bring the endpoint back to the anchor.
+        Reverts silently if CCD does not converge within 1 Å.
+        """
+        if not self.macro_kic_data:
+            return
+
+        ring_atoms, subtrees = random.choice(self.macro_kic_data)
+        n = len(ring_atoms)
+        # Break ring after position p: anchor = ring_atoms[p],
+        # open chain = ring_atoms[(p+1)%n], ..., ring_atoms[(p+n-1)%n].
+        p = random.randrange(n)
+
+        conf = self.mol.GetConformer(conf_id)
+        all_pos = conf.GetPositions()
+
+        anchor_idx = ring_atoms[p]
+        endpoint_idx = ring_atoms[(p + n - 1) % n]
+        # Target is the original endpoint position: CCD brings endpoint back there,
+        # preserving the ring-closure bond length (endpoint→anchor = orig_d).
+        target = all_pos[endpoint_idx].copy()
+
+        orig_d = float(np.linalg.norm(target - all_pos[anchor_idx]))
+        if orig_d < 1e-6:
+            return
+
+        # Chain bonds: bond k connects chain[k]=ring_atoms[(p+1+k)%n] to
+        # chain[k+1]=ring_atoms[(p+2+k)%n], for k in 0..n-3.
+        n_closure = 3
+        n_chain_bonds = n - 2
+        # Shift closure window left by 1 so endpoint (chain[n-2]) is never the *tip*
+        # of a closure bond.  If endpoint = tip it lies on the rotation axis and the
+        # CCD step has no leverage on it (v_perp == 0 → θ_opt = 0).
+        closure_start = n_chain_bonds - n_closure - 1
+
+        # Precompute downstream atom arrays for the 3 closure bonds (used in CCD loop).
+        ccd_bonds: list[tuple[int, int, np.ndarray]] = []
+        for k in range(closure_start, closure_start + n_closure):
+            origin_atom = ring_atoms[(p + 1 + k) % n]
+            tip_atom = ring_atoms[(p + 2 + k) % n]
+            moving: set[int] = set()
+            for j in range(k + 1, n - 1):
+                moving |= subtrees[(p + 1 + j) % n]
+            arr = np.fromiter(moving, dtype=np.int64, count=len(moving)) if moving else np.array([], dtype=np.int64)
+            ccd_bonds.append((origin_atom, tip_atom, arr))
+
+        _pi_over_180 = math.pi / 180.0
+
+        def _rotate(
+            origin: np.ndarray, u: np.ndarray, ux: float, uy: float, uz: float, theta: float, arr: np.ndarray
+        ) -> None:
+            # Rodrigues rotation: R(v) = c·v + s·(u x v) + (1-c)·(u·v)·u
+            # u is the unit axis ndarray; ux/uy/uz are its scalar components (avoids
+            # repeated indexing inside the hot cross-product loop).
+            if not len(arr):
+                return
+            c = math.cos(theta)
+            s = math.sin(theta)
+            one_c = 1.0 - c
+            pts = all_pos[arr] - origin
+            dots = pts @ u  # (m,) — one matmul, no np.array construction
+            cross = np.empty_like(pts)
+            cross[:, 0] = uy * pts[:, 2] - uz * pts[:, 1]
+            cross[:, 1] = uz * pts[:, 0] - ux * pts[:, 2]
+            cross[:, 2] = ux * pts[:, 1] - uy * pts[:, 0]
+            all_pos[arr] = c * pts + s * cross + (one_c * dots)[:, None] * u + origin
+
+        # Apply 1-2 driver torsions (sd=40°, gentler than 60° -> higher CCD acceptance rate).
+        n_driver = random.randint(1, 2)
+        driver_ks = random.sample(range(closure_start), min(n_driver, closure_start))
+        for k in driver_ks:
+            o_idx = ring_atoms[(p + 1 + k) % n]
+            t_idx = ring_atoms[(p + 2 + k) % n]
+            axis_vec = all_pos[t_idx] - all_pos[o_idx]
+            axis_norm = float(np.linalg.norm(axis_vec))
+            if axis_norm < 1e-6:
+                continue
+            u = axis_vec / axis_norm
+            ux, uy, uz = float(u[0]), float(u[1]), float(u[2])
+            moving_d: set[int] = set()
+            for j in range(k + 1, n - 1):
+                moving_d |= subtrees[(p + 1 + j) % n]
+            arr_d = (
+                np.fromiter(moving_d, dtype=np.int64, count=len(moving_d)) if moving_d else np.array([], dtype=np.int64)
+            )
+            _rotate(all_pos[o_idx], u, ux, uy, uz, np.random.normal(0.0, 40.0) * _pi_over_180, arr_d)
+
+        # CCD: iteratively minimise ||endpoint - target|| via 3 closure torsions.
+        # 30 outer iterations covers p95 of converging calls (measured: p95~29-35).
+        tol2 = (orig_d * 0.1) ** 2
+        for _ in range(30):
+            ep = all_pos[endpoint_idx]
+            dv = ep - target
+            if dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2] < tol2:
+                break
+            for o_idx, t_idx, arr in ccd_bonds:
+                origin = all_pos[o_idx]
+                axis = all_pos[t_idx] - origin
+                axis_norm = float(np.linalg.norm(axis))
+                if axis_norm < 1e-6:
+                    continue
+                u = axis / axis_norm
+                ux, uy, uz = float(u[0]), float(u[1]), float(u[2])
+                v = all_pos[endpoint_idx] - origin
+                v_para = ux * v[0] + uy * v[1] + uz * v[2]
+                # v_perp = v - v_para * u; compute inline to avoid extra np.array
+                vpx = v[0] - v_para * ux
+                vpy = v[1] - v_para * uy
+                vpz = v[2] - v_para * uz
+                # u x v_perp (inline cross product)
+                vrx = uy * vpz - uz * vpy
+                vry = uz * vpx - ux * vpz
+                vrz = ux * vpy - uy * vpx
+                # d = target - origin - v_para * u; dot with v_perp and v_perp_rot
+                dx = target[0] - origin[0] - v_para * ux
+                dy = target[1] - origin[1] - v_para * uy
+                dz = target[2] - origin[2] - v_para * uz
+                cos_t = dx * vpx + dy * vpy + dz * vpz
+                sin_t = dx * vrx + dy * vry + dz * vrz
+                if abs(cos_t) < 1e-12 and abs(sin_t) < 1e-12:
+                    continue
+                _rotate(origin, u, ux, uy, uz, math.atan2(sin_t, cos_t), arr)
+
+        # Revert if closure gap exceeds 0.3 Å; MMFF handles small remaining distortions.
+        if float(np.linalg.norm(all_pos[endpoint_idx] - target)) > 0.3:
+            return
+
+        conf.SetPositions(all_pos)

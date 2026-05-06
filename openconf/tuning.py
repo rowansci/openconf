@@ -207,6 +207,7 @@ def resolve_move_probabilities(
     constrained: bool,
     has_ring_flips: bool,
     has_crankshaft: bool,
+    has_kic: bool = False,
     has_rotors: bool = True,
 ) -> dict[str, float]:
     """Return move probabilities adjusted for current availability constraints."""
@@ -222,6 +223,7 @@ def resolve_move_probabilities(
     availability = {
         "ring_flip": has_ring_flips,
         "crankshaft": has_crankshaft,
+        "ring_kic": has_kic,
     }
     for move_type, is_available in availability.items():
         if is_available or move_type not in probs:

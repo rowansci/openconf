@@ -45,23 +45,27 @@
       "correlated": 0.16,
       "global_shake": 0.08,
       "ring_flip": 0.1,
-      "crankshaft": 0.12
+      "crankshaft": 0.06,
+      "ring_kic": 0.06
     },
     "forced_periodic_move": "global_shake",
     "constrained_fallback_move": "single_rotor",
     "constrained_disabled_moves": [
       "global_shake",
-      "crankshaft"
+      "crankshaft",
+      "ring_kic"
     ],
     "availability_fallbacks": {
       "ring_flip": "single_rotor",
-      "crankshaft": "single_rotor"
+      "crankshaft": "single_rotor",
+      "ring_kic": "crankshaft"
     }
   },
   "clash_check": {
     "exempt_moves": [
       "ring_flip",
-      "crankshaft"
+      "crankshaft",
+      "ring_kic"
     ]
   },
   "low_flex_path": {

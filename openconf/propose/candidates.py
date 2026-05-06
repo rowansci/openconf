@@ -54,7 +54,10 @@ class ClashChecker:
         if skip_check or is_clash_exempt_move(move_type):
             return False
 
-        return self.clash_score(conf_id) > 0.0
+        pos = self.mol.GetConformer(conf_id).GetPositions()
+        diff = pos[self._pair_i] - pos[self._pair_j]
+        dist2 = (diff * diff).sum(axis=1)
+        return bool((dist2 < self.clash_threshold2).any())
 
     def clash_score(self, conf_id: int) -> float:
         """Return soft overlap score for non-bonded atom pairs."""

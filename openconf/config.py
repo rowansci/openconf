@@ -14,6 +14,7 @@ _SUPPORTED_MOVE_TYPES = frozenset(
         "global_shake",
         "ring_flip",
         "crankshaft",
+        "ring_kic",
     }
 )
 _SUPPORTED_PARENT_STRATEGIES = frozenset({"softmax", "uniform", "best"})

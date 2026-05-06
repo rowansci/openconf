@@ -369,10 +369,12 @@ class HybridProposer:
             if self.config.seed_minimization_iters is not None
             else self.fast_minimizer.max_iters
         )
-        nthreads = int(self.config.num_threads or 0)
 
         if mmff_props is not None:
-            energy = minimize_confs_mmff(self.mol, mmff_props, [conf_id], max_its, nthreads)[0]
+            # Sequential minimizer: uses the correct ε=fast_dielectric for both geometry
+            # and energy, and avoids MMFFOptimizeMoleculeConfs touching all other pool
+            # conformers that are already in self.mol at this point.
+            energy = self.fast_minimizer.minimize(self.mol, conf_id)
         else:
             energy = self._minimize_uff_single(self.mol, conf_id, max_its)
 
@@ -464,6 +466,7 @@ class HybridProposer:
             constrained=self.constraint_spec is not None,
             has_ring_flips=bool(self.rotor_model.ring_flips),
             has_crankshaft=bool(self._moves.crankable_rings),
+            has_kic=bool(self._moves.macro_kic_data),
             has_rotors=bool(self.rotor_model.rotors),
         )
 

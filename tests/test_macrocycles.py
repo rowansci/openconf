@@ -163,6 +163,104 @@ def test_crankshaft_actually_moves_atoms():
     assert all(c >= 3 for c in moved_counts), f"Some crankshafts moved <3 atoms: {moved_counts}"
 
 
+def test_ring_kic_detected_on_macrocycle():
+    """Cyclododecane registers one KIC ring (same ring as crankshaft, ≥10 atoms)."""
+    from openconf.propose.hybrid import HybridProposer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles("C1CCCCCCCCCCC1"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    rm = build_rotor_model(mol)
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
+
+    assert len(proposer._moves.macro_kic_data) == 1
+    ring, subtrees = proposer._moves.macro_kic_data[0]
+    assert len(ring) == 12
+    assert len(subtrees) == 12
+
+
+def test_ring_kic_absent_on_small_ring():
+    """Cyclohexane must not register any KIC rings — only macrocycles qualify."""
+    from openconf.propose.hybrid import HybridProposer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles("C1CCCCC1"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    rm = build_rotor_model(mol)
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
+    assert proposer._moves.macro_kic_data == []
+
+
+def test_ring_kic_preserves_ring_topology():
+    """KIC move must not break ring connectivity: all ring bond lengths stay within 20% of initial."""
+    from openconf.propose.hybrid import HybridProposer, _copy_conformer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles("C1CCCCCCCCCCC1"))
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+    rm = build_rotor_model(mol)
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
+
+    orig_id = mol.GetConformers()[0].GetId()
+    ring = proposer._moves.macro_kic_data[0][0]
+    n = len(ring)
+
+    def ring_bond_lengths(cid: int) -> list[float]:
+        pos = mol.GetConformer(cid).GetPositions()
+        return [float(np.linalg.norm(pos[ring[i]] - pos[ring[(i + 1) % n]])) for i in range(n)]
+
+    before = ring_bond_lengths(orig_id)
+
+    accepted = 0
+    for _ in range(50):
+        new_id = _copy_conformer(mol, orig_id)
+        proposer._moves.apply_ring_kic_move(new_id)
+        after = ring_bond_lengths(new_id)
+        if after != before:  # move was accepted (SetPositions was called)
+            accepted += 1
+            for b, a in zip(before, after, strict=True):
+                assert abs(a - b) / b < 0.20, f"Ring bond length changed by >20%: {b:.3f} -> {a:.3f}"
+        mol.RemoveConformer(new_id)
+
+    assert accepted >= 10, f"KIC move was accepted <10/50 times: {accepted}"
+
+
+def test_ring_kic_preserves_ring_topology_cyclic_peptide():
+    """KIC closure bonds must work on mixed-atom rings (N, C, O backbone)."""
+    from openconf.propose.hybrid import HybridProposer, _copy_conformer
+    from openconf.torsionlib import TorsionLibrary
+
+    smiles = "O=C1CNC(=O)CNC(=O)CNC(=O)CN1"  # cyclo-(Gly)4, 12-membered ring
+    mol = prepare_molecule(Chem.MolFromSmiles(smiles))
+    AllChem.EmbedMolecule(mol, randomSeed=5)
+    rm = build_rotor_model(mol)
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
+
+    assert len(proposer._moves.macro_kic_data) >= 1, "cyclo-(Gly)4 should register a KIC ring"
+    ring = proposer._moves.macro_kic_data[0][0]
+    n = len(ring)
+
+    def ring_bond_lengths(cid: int) -> list[float]:
+        pos = mol.GetConformer(cid).GetPositions()
+        return [float(np.linalg.norm(pos[ring[i]] - pos[ring[(i + 1) % n]])) for i in range(n)]
+
+    orig_id = mol.GetConformers()[0].GetId()
+    before = ring_bond_lengths(orig_id)
+
+    accepted = 0
+    for _ in range(50):
+        new_id = _copy_conformer(mol, orig_id)
+        proposer._moves.apply_ring_kic_move(new_id)
+        after = ring_bond_lengths(new_id)
+        if after != before:
+            accepted += 1
+            for b, a in zip(before, after, strict=True):
+                assert abs(a - b) / b < 0.20, f"Ring bond length changed by >20%: {b:.3f} -> {a:.3f}"
+        mol.RemoveConformer(new_id)
+
+    assert accepted >= 5, f"KIC move accepted <5/50 times on cyclic peptide: {accepted}"
+
+
 def test_crankshaft_absent_on_aromatic_ring():
     """Benzene must not register any crankable rings — aromatic rings are rigid."""
     from openconf.propose.hybrid import HybridProposer
