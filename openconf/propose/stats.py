@@ -70,8 +70,6 @@ def populate_effective_config_stats(
     stats["topology_tuned_defaults_applied"] = int(tuned_defaults_applied)
     stats["effective_seed_n_per_rotor"] = config.seed_n_per_rotor
     stats["effective_seed_prune_rms_thresh"] = seed_prune_rms_thresh
-    stats["effective_seed_minimization_iters"] = (
-        config.seed_minimization_iters if config.seed_minimization_iters is not None else config.fast_minimization_iters
-    )
+    stats["effective_seed_minimization_iters"] = config.seed_minimization_iters
     stats["effective_dedupe_period"] = config.dedupe_period
     stats["effective_minimize_batch_size"] = config.minimize_batch_size

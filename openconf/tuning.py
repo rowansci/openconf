@@ -56,6 +56,7 @@ class MacrocycleSeedingTuning:
     disable_prune_rms: bool
     use_macrocycle_torsions: bool
     use_basic_knowledge: bool
+    amide_cis_trans_seeds: bool  # enumerate in-ring tertiary amide cis/trans variants
 
 
 @dataclass(frozen=True)
@@ -156,6 +157,7 @@ def _load_runtime_tuning() -> RuntimeTuning:
             disable_prune_rms=bool(raw["macrocycle_seeding"]["disable_prune_rms"]),
             use_macrocycle_torsions=bool(raw["macrocycle_seeding"]["use_macrocycle_torsions"]),
             use_basic_knowledge=bool(raw["macrocycle_seeding"]["use_basic_knowledge"]),
+            amide_cis_trans_seeds=bool(raw["macrocycle_seeding"]["amide_cis_trans_seeds"]),
         ),
         move_scheduling=MoveSchedulingTuning(
             default_move_probs={k: float(v) for k, v in raw["move_scheduling"]["default_move_probs"].items()},

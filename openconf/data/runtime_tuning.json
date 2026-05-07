@@ -36,7 +36,8 @@
   "macrocycle_seeding": {
     "disable_prune_rms": true,
     "use_macrocycle_torsions": true,
-    "use_basic_knowledge": true
+    "use_basic_knowledge": true,
+    "amide_cis_trans_seeds": true
   },
   "move_scheduling": {
     "default_move_probs": {

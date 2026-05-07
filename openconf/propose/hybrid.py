@@ -277,23 +277,35 @@ class HybridProposer:
 
         # Minimize each seed using pre-prepared MMFF props (includes fast_dielectric).
         mmff_props = getattr(self.fast_minimizer, "_mmff_props", None)
-        max_its = int(
-            self.config.seed_minimization_iters
-            if self.config.seed_minimization_iters is not None
-            else self.fast_minimizer.max_iters
-        )
+        max_its = self.config.seed_minimization_iters
         nthreads = int(self.config.num_threads or 0)
 
         if mmff_props is not None:
             minimize_start = time.perf_counter()
             energies = minimize_confs_mmff(self.mol, mmff_props, conf_ids, max_its, nthreads)
             self._add_time_stat("seed_minimization_time_s", time.perf_counter() - minimize_start)
-            return list(zip(conf_ids, energies, strict=True))
+            seed_results = list(zip(conf_ids, energies, strict=True))
+        else:
+            minimize_start = time.perf_counter()
+            seed_results = [(cid, self._minimize_uff_single(self.mol, cid, max_its)) for cid in conf_ids]
+            self._add_time_stat("seed_minimization_time_s", time.perf_counter() - minimize_start)
 
-        minimize_start = time.perf_counter()
-        results = [(cid, self._minimize_uff_single(self.mol, cid, max_its)) for cid in conf_ids]
-        self._add_time_stat("seed_minimization_time_s", time.perf_counter() - minimize_start)
-        return results
+        # Supplementary seeds covering cis/trans families that ETKDG undersamples
+        # for macrocycles containing N-substituted (tertiary) amide bonds.
+        if mmff_props is not None and ring_info.get("has_macrocycle") and seed_results:
+            tuning = get_runtime_tuning().macrocycle_seeding
+            if tuning.amide_cis_trans_seeds:
+                from .amide_seeds import find_ring_tertiary_amide_dihedrals, generate_amide_variant_seeds
+
+                amide_dihedrals = find_ring_tertiary_amide_dihedrals(self.mol)
+                if amide_dihedrals:
+                    best_base = min(seed_results, key=lambda x: x[1])[0]
+                    amide_start = time.perf_counter()
+                    extra = generate_amide_variant_seeds(self.mol, mmff_props, best_base, amide_dihedrals)
+                    self._add_time_stat("seed_minimization_time_s", time.perf_counter() - amide_start)
+                    seed_results.extend(extra)
+
+        return seed_results
 
     def _reset_constrained_positions(self, mol: Chem.Mol, conf_id: int) -> None:
         """Snap constrained atoms back to their exact reference coordinates.
@@ -364,11 +376,7 @@ class HybridProposer:
         conf_id = self.mol.AddConformer(conf, assignId=True)
 
         mmff_props = getattr(self.fast_minimizer, "_mmff_props", None)
-        max_its = int(
-            self.config.seed_minimization_iters
-            if self.config.seed_minimization_iters is not None
-            else self.fast_minimizer.max_iters
-        )
+        max_its = self.config.seed_minimization_iters
 
         if mmff_props is not None:
             # Sequential minimizer: uses the correct ε=fast_dielectric for both geometry

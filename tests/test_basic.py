@@ -482,7 +482,7 @@ def test_large_flexible_defaults_are_topology_tuned():
     assert int(ensemble.generation_stats["topology_tuned_defaults_applied"]) == 1
     assert int(ensemble.generation_stats["effective_seed_n_per_rotor"]) == 2
     assert float(ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == 1.75
-    assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
+    assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 10
     assert float(ensemble.generation_stats["effective_seed_budget_scale"]) == 0.5
     assert int(ensemble.generation_stats["effective_seed_budget_floor"]) == 12
     assert int(ensemble.generation_stats["requested_n_seeds"]) < int(
@@ -502,7 +502,7 @@ def test_macrocycles_do_not_use_large_flexible_tuning():
     assert int(ensemble.generation_stats["topology_tuned_defaults_applied"]) == 0
     assert int(ensemble.generation_stats["effective_seed_n_per_rotor"]) == 3
     assert float(ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == -1.0
-    assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
+    assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 10
     assert float(ensemble.generation_stats["effective_seed_budget_scale"]) == 1.0
     assert int(ensemble.generation_stats["effective_seed_budget_floor"]) == 20
     assert int(ensemble.generation_stats["effective_dedupe_period"]) == 50
@@ -520,6 +520,7 @@ def test_large_flexible_tuning_respects_overrides_and_opt_out():
         random_seed=5,
         collect_stats=True,
         seed_n_per_rotor=5,
+        seed_minimization_iters=5,
         dedupe_period=25,
         minimize_batch_size=4,
         topology_aware_seed_pruning=False,
@@ -529,7 +530,7 @@ def test_large_flexible_tuning_respects_overrides_and_opt_out():
     assert int(overridden_ensemble.generation_stats["topology_tuned_defaults_applied"]) == 0
     assert int(overridden_ensemble.generation_stats["effective_seed_n_per_rotor"]) == 5
     assert float(overridden_ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == 1.0
-    assert int(overridden_ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
+    assert int(overridden_ensemble.generation_stats["effective_seed_minimization_iters"]) == 5
     assert float(overridden_ensemble.generation_stats["effective_seed_budget_scale"]) == 1.0
     assert int(overridden_ensemble.generation_stats["effective_seed_budget_floor"]) == 20
     assert int(overridden_ensemble.generation_stats["effective_dedupe_period"]) == 25
@@ -547,7 +548,7 @@ def test_large_flexible_tuning_respects_overrides_and_opt_out():
     assert int(opt_out_ensemble.generation_stats["topology_tuned_defaults_applied"]) == 0
     assert int(opt_out_ensemble.generation_stats["effective_seed_n_per_rotor"]) == 3
     assert float(opt_out_ensemble.generation_stats["effective_seed_prune_rms_thresh"]) == 1.0
-    assert int(opt_out_ensemble.generation_stats["effective_seed_minimization_iters"]) == 20
+    assert int(opt_out_ensemble.generation_stats["effective_seed_minimization_iters"]) == 10
     assert float(opt_out_ensemble.generation_stats["effective_seed_budget_scale"]) == 1.0
     assert int(opt_out_ensemble.generation_stats["effective_seed_budget_floor"]) == 20
     assert int(opt_out_ensemble.generation_stats["effective_dedupe_period"]) == 50
@@ -566,12 +567,12 @@ def test_seed_experiment_knobs_are_reflected_in_stats():
         collect_stats=True,
         topology_aware_seed_pruning=True,
         topology_aware_seed_budget=True,
-        seed_minimization_iters=10,
+        seed_minimization_iters=5,
     )
     ensemble = generate_conformers("CCCCCCCCCCCCCCCC", config=config)
 
     assert float(ensemble.generation_stats["effective_seed_prune_rms_thresh"]) > 1.0
-    assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 10
+    assert int(ensemble.generation_stats["effective_seed_minimization_iters"]) == 5
     assert float(ensemble.generation_stats["effective_seed_budget_scale"]) < 1.0
 
 

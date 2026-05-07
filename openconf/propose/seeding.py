@@ -99,6 +99,10 @@ def _is_low_flex_seed_budget_candidate(mol: Chem.Mol, rotor_model: RotorModel, c
     )
 
 
+_SEED_ROTOR_KINK = 8  # rotors beyond this threshold contribute n_per_rotor-1 seeds each
+_MACRO_SEED_CAP = 12  # ring sizes beyond this cap grow linearly rather than quadratically
+
+
 def _compute_n_seeds(rotor_model: RotorModel, n_per_rotor: int = 3) -> int:
     """Compute topology-derived seed count before runtime reductions.
 
@@ -109,9 +113,14 @@ def _compute_n_seeds(rotor_model: RotorModel, n_per_rotor: int = 3) -> int:
     Returns:
         Recommended number of seed conformers.
     """
-    base = max(20, rotor_model.n_rotatable * n_per_rotor)
+    n_rot = rotor_model.n_rotatable
+    if n_rot <= _SEED_ROTOR_KINK:
+        base = max(20, n_rot * n_per_rotor)
+    else:
+        tail_rate = max(1, n_per_rotor - 1)
+        base = max(20, _SEED_ROTOR_KINK * n_per_rotor + (n_rot - _SEED_ROTOR_KINK) * tail_rate)
     ring_bonus = len(rotor_model.ring_flips) * 5
-    macro_bonus = sum(s * s for s in rotor_model.ring_info["ring_sizes"] if s >= 10)
+    macro_bonus = sum(s * min(s, _MACRO_SEED_CAP) for s in rotor_model.ring_info["ring_sizes"] if s >= 10)
     return min(500, base + ring_bonus + macro_bonus)
 
 

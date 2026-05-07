@@ -26,6 +26,32 @@ def _set_dihedral(mol: Chem.Mol, conf_id: int, atoms: tuple[int, int, int, int],
     rdMolTransforms.SetDihedralDeg(conf, atoms[0], atoms[1], atoms[2], atoms[3], angle_deg)
 
 
+def _rodrigues_rotate(
+    all_pos: np.ndarray,
+    arr: np.ndarray,
+    origin: np.ndarray,
+    ux: float,
+    uy: float,
+    uz: float,
+    theta: float,
+) -> None:
+    """Rotate atoms at arr indices in-place about axis (ux,uy,uz) through origin by theta radians."""
+    if not len(arr):
+        return
+    c = math.cos(theta)
+    s = math.sin(theta)
+    one_c = 1.0 - c
+    R = np.array(
+        [
+            [c + ux * ux * one_c, ux * uy * one_c - uz * s, ux * uz * one_c + uy * s],
+            [uy * ux * one_c + uz * s, c + uy * uy * one_c, uy * uz * one_c - ux * s],
+            [uz * ux * one_c - uy * s, uz * uy * one_c + ux * s, c + uz * uz * one_c],
+        ]
+    )
+    pts = all_pos[arr] - origin
+    all_pos[arr] = pts @ R.T + origin
+
+
 class MoveExecutor:
     """Executes move operators for the hybrid proposal engine."""
 
@@ -294,25 +320,6 @@ class MoveExecutor:
 
         _pi_over_180 = math.pi / 180.0
 
-        def _rotate(
-            origin: np.ndarray, u: np.ndarray, ux: float, uy: float, uz: float, theta: float, arr: np.ndarray
-        ) -> None:
-            # Rodrigues rotation: R(v) = c·v + s·(u x v) + (1-c)·(u·v)·u
-            # u is the unit axis ndarray; ux/uy/uz are its scalar components (avoids
-            # repeated indexing inside the hot cross-product loop).
-            if not len(arr):
-                return
-            c = math.cos(theta)
-            s = math.sin(theta)
-            one_c = 1.0 - c
-            pts = all_pos[arr] - origin
-            dots = pts @ u  # (m,) — one matmul, no np.array construction
-            cross = np.empty_like(pts)
-            cross[:, 0] = uy * pts[:, 2] - uz * pts[:, 1]
-            cross[:, 1] = uz * pts[:, 0] - ux * pts[:, 2]
-            cross[:, 2] = ux * pts[:, 1] - uy * pts[:, 0]
-            all_pos[arr] = c * pts + s * cross + (one_c * dots)[:, None] * u + origin
-
         # Apply 1-2 driver torsions (sd=40°, gentler than 60° -> higher CCD acceptance rate).
         n_driver = random.randint(1, 2)
         driver_ks = random.sample(range(closure_start), min(n_driver, closure_start))
@@ -331,7 +338,7 @@ class MoveExecutor:
             arr_d = (
                 np.fromiter(moving_d, dtype=np.int64, count=len(moving_d)) if moving_d else np.array([], dtype=np.int64)
             )
-            _rotate(all_pos[o_idx], u, ux, uy, uz, np.random.normal(0.0, 40.0) * _pi_over_180, arr_d)
+            _rodrigues_rotate(all_pos, arr_d, all_pos[o_idx], ux, uy, uz, np.random.normal(0.0, 40.0) * _pi_over_180)
 
         # CCD: iteratively minimise ||endpoint - target|| via 3 closure torsions.
         # 30 outer iterations covers p95 of converging calls (measured: p95~29-35).
@@ -367,7 +374,7 @@ class MoveExecutor:
                 sin_t = dx * vrx + dy * vry + dz * vrz
                 if abs(cos_t) < 1e-12 and abs(sin_t) < 1e-12:
                     continue
-                _rotate(origin, u, ux, uy, uz, math.atan2(sin_t, cos_t), arr)
+                _rodrigues_rotate(all_pos, arr, origin, ux, uy, uz, math.atan2(sin_t, cos_t))
 
         # Revert if closure gap exceeds 0.3 Å; MMFF handles small remaining distortions.
         if float(np.linalg.norm(all_pos[endpoint_idx] - target)) > 0.3:

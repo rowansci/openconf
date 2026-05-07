@@ -140,10 +140,10 @@ class ConformerConfig:
             Seeds within this distance of each other are discarded during embedding.
             Higher values (e.g. 1.0 Å) give fewer, more diverse seeds and reduce
             the batch-MMFF cost. Lower values (e.g. 0.5 Å) give more seeds.
-        seed_minimization_iters: Optional MMFF iteration count used only for
-            seed cleanup. ``None`` (default) reuses ``fast_minimization_iters``.
-            Smaller values can reduce seed-stage cost without changing proposal
-            minimization behaviour.
+        seed_minimization_iters: MMFF iteration count used only for seed cleanup
+            (default 10). Seeds only need rough geometry to seed the MCMM walk, so
+            fewer iterations than ``fast_minimization_iters`` (default 20) are
+            sufficient and reduce seeding cost without changing proposal behaviour.
         topology_aware_seed_pruning: Whether to use a more aggressive ETKDG
             prune RMS threshold for large non-macrocyclic flexible molecules.
             ``None`` (default) lets topology-aware tuning decide; ``True``
@@ -218,7 +218,7 @@ class ConformerConfig:
     skip_clash_check: bool = False
     seed_n_per_rotor: int = 3
     seed_prune_rms_thresh: float = 1.0
-    seed_minimization_iters: int | None = None
+    seed_minimization_iters: int = 10
     topology_aware_seed_pruning: bool | None = None
     topology_aware_seed_budget: bool | None = None
     minimize_batch_size: int = 8
@@ -248,7 +248,7 @@ class ConformerConfig:
         _require_at_least("max_minimization_iters", self.max_minimization_iters, 0)
         _require_greater_than("parent_softmax_temperature_kcal", self.parent_softmax_temperature_kcal, 0.0)
         _require_at_least("seed_n_per_rotor", self.seed_n_per_rotor, 1)
-        _require_optional_at_least("seed_minimization_iters", self.seed_minimization_iters, 0)
+        _require_at_least("seed_minimization_iters", self.seed_minimization_iters, 0)
         _require_at_least("minimize_batch_size", self.minimize_batch_size, 1)
         _require_greater_than("fast_dielectric", self.fast_dielectric, 0.0)
         _require_greater_than("final_dielectric", self.final_dielectric, 0.0)
