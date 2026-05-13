@@ -1053,3 +1053,56 @@ def test_metal_ligand_flat_angles():
         assert np.allclose(weights_arr, 1.0 / 12.0)
         # Equally spaced across [0, 360)
         assert np.allclose(np.diff(angles_arr), 30.0)
+
+
+@pytest.mark.parametrize(
+    "xyz_name",
+    [
+        "dppf_ni_ph_aniline.xyz",
+        "hydrocupration_ts.xyz",
+        "ru_pcymene_aqua.xyz",
+    ],
+)
+def test_xyz_metals_remain_pinned_during_generation(xyz_name: str):
+    """Ensure untyped metals from XYZ stay at input coordinates."""
+    from pathlib import Path
+
+    import numpy as np
+
+    from openconf import ConformerConfig, generate_conformers
+    from openconf.io import read_xyz
+    from openconf.perceive import _is_metal
+
+    mol = read_xyz(Path(__file__).resolve().parent / "data" / xyz_name)
+    ref_positions = mol.GetConformer().GetPositions().copy()
+    metal_indices = [atom.GetIdx() for atom in mol.GetAtoms() if _is_metal(atom)]
+    metal_ligand_pairs = [
+        (atom.GetIdx(), neighbor.GetIdx())
+        for atom in mol.GetAtoms()
+        if _is_metal(atom)
+        for neighbor in atom.GetNeighbors()
+    ]
+    ref_distances = {
+        pair: float(np.linalg.norm(ref_positions[pair[0]] - ref_positions[pair[1]])) for pair in metal_ligand_pairs
+    }
+
+    config = ConformerConfig(
+        max_out=3,
+        n_steps=5,
+        n_seeds=1,
+        random_seed=1,
+        num_threads=1,
+        skip_clash_check=True,
+        max_minimization_iters=50,
+    )
+    ensemble = generate_conformers(mol, config=config, add_hs=False)
+
+    assert ensemble.n_conformers > 0
+    for conf_id in ensemble.conf_ids:
+        positions = ensemble.mol.GetConformer(conf_id).GetPositions()
+        assert np.allclose(positions[metal_indices], ref_positions[metal_indices], atol=1e-8)
+        max_shell_delta = max(
+            abs(float(np.linalg.norm(positions[i] - positions[j])) - distance)
+            for (i, j), distance in ref_distances.items()
+        )
+        assert max_shell_delta < 0.35

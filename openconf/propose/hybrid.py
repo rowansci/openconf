@@ -14,7 +14,14 @@ from rdkit.Chem import AllChem
 from ..config import ConformerConfig, ConstraintSpec
 from ..perceive import RotorModel, filter_constrained_rotors
 from ..pool import ConformerPool
-from ..relax import get_minimizer, minimize_confs_mmff
+from ..relax import (
+    _METAL_LIGAND_DISTANCE_FORCE_CONSTANT,
+    _METAL_LIGAND_DISTANCE_TOLERANCE,
+    _METAL_POSITION_FORCE_CONSTANT,
+    _metal_ligand_reference_distances,
+    get_minimizer,
+    minimize_confs_mmff,
+)
 from ..torsionlib import TorsionLibrary, get_default_torsion_library
 from ..tuning import (
     get_runtime_tuning,
@@ -129,6 +136,15 @@ class HybridProposer:
         from ..perceive import _is_metal
 
         self._metal_atom_indices: frozenset[int] = frozenset(a.GetIdx() for a in mol.GetAtoms() if _is_metal(a))
+        self._metal_ref_pos: dict[int, np.ndarray] = {}
+        if self._metal_atom_indices and mol.GetNumConformers() > 0:
+            ref_conf = mol.GetConformer(mol.GetConformers()[0].GetId())
+            for idx in self._metal_atom_indices:
+                self._metal_ref_pos[int(idx)] = np.array(ref_conf.GetAtomPosition(int(idx)))
+        self._metal_ligand_ref_distances: dict[tuple[int, int], float] = _metal_ligand_reference_distances(
+            mol,
+            self._metal_atom_indices,
+        )
 
         self.fast_minimizer = get_minimizer(
             config.minimizer,
@@ -323,17 +339,42 @@ class HybridProposer:
         for idx, pos in self._constrained_ref_pos.items():
             conf.SetAtomPosition(idx, pos.tolist())
 
+    def _reset_metal_positions(self, mol: Chem.Mol, conf_id: int) -> None:
+        """Snap metal centers back to reference coordinates when available.
+
+        Args:
+            mol: RDKit molecule containing conformer.
+            conf_id: Conformer ID to update.
+        """
+        if not self._metal_ref_pos:
+            return
+        conf = mol.GetConformer(conf_id)
+        for idx, pos in self._metal_ref_pos.items():
+            conf.SetAtomPosition(idx, pos.tolist())
+
+    def _add_metal_uff_constraints(self, ff) -> None:
+        """Add metal position and reference-shell distance constraints to UFF force field."""
+        for m_idx in self._metal_atom_indices:
+            ff.UFFAddPositionConstraint(int(m_idx), 0.0, _METAL_POSITION_FORCE_CONSTANT)
+        for (m_idx, nb_idx), distance in self._metal_ligand_ref_distances.items():
+            ff.UFFAddDistanceConstraint(
+                int(m_idx),
+                int(nb_idx),
+                False,
+                max(0.0, distance - _METAL_LIGAND_DISTANCE_TOLERANCE),
+                distance + _METAL_LIGAND_DISTANCE_TOLERANCE,
+                _METAL_LIGAND_DISTANCE_FORCE_CONSTANT,
+            )
+
     def _minimize_uff_single(self, mol: Chem.Mol, conf_id: int, max_its: int) -> float:
         """UFF-minimize one conformer with metal position/distance constraints."""
         ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(conf_id))
         if ff is None:
             return float("inf")
-        for m_idx in self._metal_atom_indices:
-            ff.UFFAddPositionConstraint(int(m_idx), 0.0, 1e4)
-            for nb in mol.GetAtomWithIdx(m_idx).GetNeighbors():
-                ff.UFFAddDistanceConstraint(int(m_idx), int(nb.GetIdx()), False, 2.0, 3.5, 500.0)
+        self._add_metal_uff_constraints(ff)
         try:
             ff.Minimize(maxIts=max_its)
+            self._reset_metal_positions(mol, conf_id)
             return float(ff.CalcEnergy())
         except (ValueError, RuntimeError):
             return float("inf")
@@ -416,10 +457,10 @@ class HybridProposer:
                 ff.Minimize(maxIts=int(minimizer.max_iters))
                 energy = float(ff.CalcEnergy())
             else:
-                # UFF fallback — no position constraints available, minimize freely
                 ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(conf_id))
                 if ff is None:
                     return float("inf")
+                self._add_metal_uff_constraints(ff)
                 ff.Minimize(maxIts=int(minimizer.max_iters))
                 energy = float(ff.CalcEnergy())
         except (ValueError, RuntimeError):
@@ -428,6 +469,7 @@ class HybridProposer:
         # Snap constrained atoms back to exact reference coordinates, eliminating
         # any residual drift that the position restraints did not fully suppress.
         self._reset_constrained_positions(mol, conf_id)
+        self._reset_metal_positions(mol, conf_id)
         return energy
 
     def _propose_constrained(self, pool: "ConformerPool", step: int) -> tuple[int, float, str] | None:
@@ -838,12 +880,14 @@ class HybridProposer:
                     if ff is None:
                         energies.append(float("inf"))
                         continue
+                    self._add_metal_uff_constraints(ff)
                     ff.Minimize(maxIts=int(max_iters))
                     energies.append(float(ff.CalcEnergy()))
             except (ValueError, RuntimeError):
                 energies.append(float("inf"))
                 continue
             self._reset_constrained_positions(mol, cid)
+            self._reset_metal_positions(mol, cid)
 
         return energies
 
