@@ -739,6 +739,26 @@ def test_ring_flips_mixed():
     assert len(rm.ring_flips[0].junction_atoms) == 2
 
 
+def test_ring_flips_exclude_specified_ring_stereocenters():
+    """Ring reflection must not be scheduled across specified ring stereocenters."""
+    from openconf.perceive import build_rotor_model, prepare_molecule
+
+    mol = prepare_molecule(Chem.MolFromSmiles("C[C@H]1CCCC[C@H]1F"))
+    rm = build_rotor_model(mol)
+
+    assert len(rm.ring_flips) == 0
+
+
+def test_ring_flips_exclude_specified_chiral_subtrees():
+    """Ring reflection must not move chiral substituent subtrees."""
+    from openconf.perceive import build_rotor_model, prepare_molecule
+
+    mol = prepare_molecule(Chem.MolFromSmiles("F[C@H](Cl)C1CCCCC1"))
+    rm = build_rotor_model(mol)
+
+    assert len(rm.ring_flips) == 0
+
+
 def test_ring_info_macrocycle():
     """Macrocycle flag is set for large rings."""
     from openconf.perceive import build_rotor_model, prepare_molecule
@@ -966,6 +986,68 @@ def test_ring_flip_in_generation():
     config = ConformerConfig(max_out=10, n_steps=50, pool_max=100, random_seed=42)
     ens = generate_conformers("C1CCCCC1", config=config)
     assert ens.n_conformers > 0
+
+
+def test_final_stereo_filter_rejects_inverted_tetrahedral_conformer():
+    """Final stereochemistry filter rejects inverted tetrahedral geometry."""
+    from rdkit.Chem import AllChem
+
+    from openconf.api import _filter_stereochemistry_consistent_conformers
+    from openconf.perceive import prepare_molecule, specified_stereochemistry
+
+    mol = prepare_molecule(Chem.MolFromSmiles("F[C@H](Cl)Br"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    reference_stereo = specified_stereochemistry(mol)
+
+    original_id = mol.GetConformer(0).GetId()
+    inverted_id = mol.AddConformer(Chem.Conformer(mol.GetConformer(original_id)), assignId=True)
+    inverted_conf = mol.GetConformer(inverted_id)
+    for atom_idx in range(mol.GetNumAtoms()):
+        pos = inverted_conf.GetAtomPosition(atom_idx)
+        inverted_conf.SetAtomPosition(atom_idx, (-pos.x, pos.y, pos.z))
+
+    conf_ids, energies = _filter_stereochemistry_consistent_conformers(
+        mol,
+        [original_id, inverted_id],
+        [0.0, 1.0],
+        reference_stereo,
+    )
+
+    assert conf_ids == [original_id]
+    assert energies == [0.0]
+    assert inverted_id not in {conf.GetId() for conf in mol.GetConformers()}
+
+
+def test_final_stereo_filter_rejects_inverted_alkene_conformer():
+    """Final stereochemistry filter rejects inverted double-bond geometry."""
+    from rdkit.Chem import AllChem
+
+    from openconf.api import _filter_stereochemistry_consistent_conformers
+    from openconf.perceive import prepare_molecule, specified_stereochemistry
+
+    trans_mol = prepare_molecule(Chem.MolFromSmiles("F/C=C/Cl"))
+    cis_mol = prepare_molecule(Chem.MolFromSmiles("F/C=C\\Cl"))
+    AllChem.EmbedMolecule(trans_mol, randomSeed=1)
+    AllChem.EmbedMolecule(cis_mol, randomSeed=2)
+    reference_stereo = specified_stereochemistry(trans_mol)
+
+    original_id = trans_mol.GetConformer(0).GetId()
+    inverted_id = trans_mol.AddConformer(Chem.Conformer(trans_mol.GetConformer(original_id)), assignId=True)
+    inverted_conf = trans_mol.GetConformer(inverted_id)
+    cis_conf = cis_mol.GetConformer(0)
+    for atom_idx in range(trans_mol.GetNumAtoms()):
+        inverted_conf.SetAtomPosition(atom_idx, cis_conf.GetAtomPosition(atom_idx))
+
+    conf_ids, energies = _filter_stereochemistry_consistent_conformers(
+        trans_mol,
+        [original_id, inverted_id],
+        [0.0, 1.0],
+        reference_stereo,
+    )
+
+    assert conf_ids == [original_id]
+    assert energies == [0.0]
+    assert inverted_id not in {conf.GetId() for conf in trans_mol.GetConformers()}
 
 
 def test_bridged_bicyclic_norbornane_ring_flips():

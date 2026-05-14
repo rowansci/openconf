@@ -64,6 +64,14 @@ class RotorModel:
     n_rotatable: int
 
 
+@dataclass(frozen=True)
+class StereoSignature:
+    """Specified stereochemistry labels for graph-level validation."""
+
+    tetrahedral: dict[int, str]
+    bonds: dict[int, Chem.BondStereo]
+
+
 # Atomic numbers considered metals for the purposes of rotor/ring-flip filtering.
 # Bonds to metal centers and chelate rings are excluded from torsion sampling.
 _METAL_ATOMIC_NUMS: frozenset[int] = frozenset(
@@ -137,6 +145,15 @@ _METAL_ATOMIC_NUMS: frozenset[int] = frozenset(
         82,
         83,  # Al, Ga, In, Sn, Tl, Pb, Bi
     ]
+)
+
+_SPECIFIED_BOND_STEREO: frozenset[Chem.BondStereo] = frozenset(
+    {
+        Chem.BondStereo.STEREOCIS,
+        Chem.BondStereo.STEREOTRANS,
+        Chem.BondStereo.STEREOE,
+        Chem.BondStereo.STEREOZ,
+    }
 )
 
 
@@ -296,7 +313,9 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
 
     Fused rings are supported: junction atoms (shared with another ring) define
     the reflection plane but do not move.  A ring is eligible when it has at
-    least two non-junction atoms so there is something to reflect.
+    least one non-junction atom so there is something to reflect. Rings whose
+    reflection would touch specified tetrahedral stereochemistry are excluded
+    because plane reflection is an improper transform.
 
     Args:
         mol: RDKit molecule.
@@ -333,8 +352,120 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
         if size - len(ring_junction) < 1:
             continue
 
+        if _ring_flip_touches_specified_tetrahedral_stereo(mol, tuple(ring), ring_junction):
+            continue
+
         flips.append(RingFlip(ring_atoms=tuple(ring), ring_size=size, junction_atoms=ring_junction))
     return flips
+
+
+def _specified_tetrahedral_centers(mol: Chem.Mol) -> frozenset[int]:
+    """Return atom indices with explicitly assigned tetrahedral chirality."""
+    specified_tags = {Chem.ChiralType.CHI_TETRAHEDRAL_CW, Chem.ChiralType.CHI_TETRAHEDRAL_CCW}
+    return frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetChiralTag() in specified_tags)
+
+
+def specified_stereochemistry(mol: Chem.Mol) -> StereoSignature:
+    """Return specified tetrahedral and double-bond stereochemistry.
+
+    Args:
+        mol: RDKit molecule.
+
+    Returns:
+        Stereochemistry labels assigned in molecule graph.
+    """
+    work = Chem.Mol(mol)
+    Chem.AssignStereochemistry(work, cleanIt=True, force=True)
+    specified_centers = _specified_tetrahedral_centers(work)
+    center_labels = dict(Chem.FindMolChiralCenters(work, includeUnassigned=False, useLegacyImplementation=False))
+    tetrahedral = {idx: center_labels[idx] for idx in specified_centers if idx in center_labels}
+    bonds = {bond.GetIdx(): bond.GetStereo() for bond in work.GetBonds() if bond.GetStereo() in _SPECIFIED_BOND_STEREO}
+    return StereoSignature(tetrahedral=tetrahedral, bonds=bonds)
+
+
+def stereochemistry_from_conformer(mol: Chem.Mol, conf_id: int) -> StereoSignature:
+    """Perceive tetrahedral and double-bond stereochemistry from conformer coordinates.
+
+    Args:
+        mol: RDKit molecule.
+        conf_id: Conformer ID.
+
+    Returns:
+        Stereochemistry labels perceived from 3D coordinates.
+    """
+    work = Chem.Mol(mol)
+    for atom in work.GetAtoms():
+        atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+    for bond in work.GetBonds():
+        bond.SetStereo(Chem.BondStereo.STEREONONE)
+
+    Chem.AssignStereochemistryFrom3D(work, confId=int(conf_id), replaceExistingTags=True)
+    Chem.AssignStereochemistry(work, cleanIt=True, force=True)
+
+    center_labels = dict(Chem.FindMolChiralCenters(work, includeUnassigned=False, useLegacyImplementation=False))
+    bonds = {bond.GetIdx(): bond.GetStereo() for bond in work.GetBonds() if bond.GetStereo() in _SPECIFIED_BOND_STEREO}
+    return StereoSignature(tetrahedral=center_labels, bonds=bonds)
+
+
+def conformer_matches_specified_stereochemistry(
+    mol: Chem.Mol,
+    conf_id: int,
+    reference: StereoSignature,
+) -> bool:
+    """Return whether conformer geometry preserves specified stereochemistry.
+
+    Args:
+        mol: RDKit molecule.
+        conf_id: Conformer ID.
+        reference: Stereochemistry labels from input molecule.
+
+    Returns:
+        True when all specified labels match geometry perceived from conformer.
+    """
+    if not reference.tetrahedral and not reference.bonds:
+        return True
+
+    observed = stereochemistry_from_conformer(mol, conf_id)
+    for atom_idx, label in reference.tetrahedral.items():
+        if observed.tetrahedral.get(atom_idx) != label:
+            return False
+    for bond_idx, stereo in reference.bonds.items():
+        if observed.bonds.get(bond_idx) != stereo:
+            return False
+    return True
+
+
+def _ring_flip_touches_specified_tetrahedral_stereo(
+    mol: Chem.Mol,
+    ring_atoms: tuple[int, ...],
+    junction_atoms: frozenset[int] = frozenset(),
+) -> bool:
+    """Return whether reflection would affect specified tetrahedral chirality.
+
+    Ring flip is implemented as plane reflection of ring atoms plus attached
+    subtrees. Reflection has determinant -1, so applying it to stereocenter
+    coordinates can invert handedness while leaving RDKit chiral tags unchanged.
+
+    Args:
+        mol: RDKit molecule.
+        ring_atoms: Ring atom indices.
+        junction_atoms: Ring-fusion atoms excluded from reflection.
+
+    Returns:
+        True when reflected atom set includes specified stereocenter or one of
+        its directly attached atoms.
+    """
+    moving_atoms = _ring_flip_moving_atoms(mol, ring_atoms, junction_atoms)
+    if not moving_atoms:
+        return False
+
+    for center_idx in _specified_tetrahedral_centers(mol):
+        if center_idx in moving_atoms:
+            return True
+        center = mol.GetAtomWithIdx(center_idx)
+        if any(neighbor.GetIdx() in moving_atoms for neighbor in center.GetNeighbors()):
+            return True
+    return False
 
 
 def _ring_flip_moving_atoms(

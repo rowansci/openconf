@@ -7,7 +7,13 @@ import numpy as np
 from rdkit import Chem
 
 from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_config
-from .perceive import build_rotor_model, prepare_molecule
+from .perceive import (
+    StereoSignature,
+    build_rotor_model,
+    conformer_matches_specified_stereochemistry,
+    prepare_molecule,
+    specified_stereochemistry,
+)
 from .pool import ConformerRecord
 from .propose.hybrid import run_hybrid_generation, run_low_flex_generation
 from .propose.stats import GenerationStat
@@ -16,6 +22,48 @@ from .tuning import get_runtime_tuning
 
 # Gas constant in kcal/(mol·K); kT at 298.15 K ≈ 0.5924 kcal/mol.
 _R_KCAL_PER_MOL_K = 1.987204e-3
+
+
+def _filter_stereochemistry_consistent_conformers(
+    mol: Chem.Mol,
+    conf_ids: list[int],
+    energies: list[float],
+    reference_stereo: StereoSignature,
+) -> tuple[list[int], list[float]]:
+    """Filter final conformers that changed input-specified stereochemistry.
+
+    Args:
+        mol: RDKit molecule containing final conformers.
+        conf_ids: Final conformer IDs.
+        energies: Energies aligned to conf_ids.
+        reference_stereo: Input-specified stereochemistry labels.
+
+    Returns:
+        Filtered conformer IDs and energies.
+
+    Raises:
+        ValueError: If all final conformers changed specified stereochemistry.
+    """
+    if not reference_stereo.tetrahedral and not reference_stereo.bonds:
+        return conf_ids, energies
+
+    kept_ids: list[int] = []
+    kept_energies: list[float] = []
+    rejected_ids: list[int] = []
+    for conf_id, energy in zip(conf_ids, energies, strict=True):
+        if conformer_matches_specified_stereochemistry(mol, conf_id, reference_stereo):
+            kept_ids.append(conf_id)
+            kept_energies.append(energy)
+        else:
+            rejected_ids.append(conf_id)
+
+    for conf_id in rejected_ids:
+        mol.RemoveConformer(conf_id)
+
+    if conf_ids and not kept_ids:
+        raise ValueError("All generated conformers changed input-specified stereochemistry.")
+
+    return kept_ids, kept_energies
 
 
 @dataclass
@@ -344,6 +392,7 @@ def generate_conformers(
         config = ConformerConfig()
 
     mol = prepare_molecule(mol, add_hs=add_hs)
+    reference_stereo = specified_stereochemistry(mol)
     rotor_model = build_rotor_model(mol)
 
     if method == "hybrid":
@@ -358,6 +407,8 @@ def generate_conformers(
         mol, conf_ids, energies, generation_stats = runner(mol, rotor_model, config, torsion_library=torsion_library)
     else:
         raise ValueError(f"Unknown method: {method}. Available: 'hybrid'")
+
+    conf_ids, energies = _filter_stereochemistry_consistent_conformers(mol, conf_ids, energies, reference_stereo)
 
     records = [
         ConformerRecord(
@@ -438,6 +489,7 @@ def generate_conformers_from_pose(
 
     resolved_config.constraint_spec = ConstraintSpec(constrained_atoms=frozenset(constrained_atoms))
     prepped_mol = prepare_molecule(mol, add_hs=True)
+    reference_stereo = specified_stereochemistry(prepped_mol)
 
     rotor_model = build_rotor_model(prepped_mol)
 
@@ -446,6 +498,12 @@ def generate_conformers_from_pose(
         rotor_model,
         resolved_config,
         torsion_library=torsion_library,
+    )
+    conf_ids, energies = _filter_stereochemistry_consistent_conformers(
+        prepped_mol,
+        conf_ids,
+        energies,
+        reference_stereo,
     )
 
     records = [
