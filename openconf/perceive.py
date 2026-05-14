@@ -11,11 +11,11 @@ class Rotor:
     """Represents a rotatable bond.
 
     Attributes:
-        bond_idx: Index of the rotatable bond.
-        atom_idxs: Tuple of (begin_atom, end_atom) indices.
-        dihedral_atoms: Tuple of 4 atom indices defining the dihedral.
-        rotor_type: Classification of the rotor (e.g., "sp3_sp3", "amide", "biaryl").
-        neighbors: Indices of adjacent rotors in the rotor graph.
+        bond_idx: rotatable bond index
+        atom_idxs: bond endpoint atom indices
+        dihedral_atoms: atom indices defining the dihedral
+        rotor_type: rotor classification such as `"sp3_sp3"`, `"amide"`, or `"biaryl"`
+        neighbors: adjacent rotor indices in rotor graph
     """
 
     bond_idx: int
@@ -30,11 +30,11 @@ class RingFlip:
     """Non-aromatic ring that can undergo conformational flipping.
 
     Attributes:
-        ring_atoms: Tuple of atom indices in ring traversal order.
-        ring_size: Number of atoms in the ring.
-        junction_atoms: Atoms shared with other rings (ring-fusion bonds).
+        ring_atoms: atom indices in ring traversal order
+        ring_size: atom count in ring
+        junction_atoms: atoms shared with other rings (ring-fusion bonds).
             These define the reflection plane but do not move during the flip.
-        stereo_sensitive: Whether simple plane reflection would touch specified
+        stereo_sensitive: simple plane reflection would touch specified
             tetrahedral stereochemistry and must use stereo-preserving moves.
     """
 
@@ -49,13 +49,13 @@ class RotorModel:
     """Model of all rotatable bonds in a molecule.
 
     Attributes:
-        mol: RDKit molecule object.
-        rotors: List of Rotor objects.
-        adj: Adjacency list for the rotor graph.
-        ring_info: Ring membership information.
-        ring_flips: List of flippable non-aromatic rings (size 5-7).
-        heavy_atom_indices: Indices of non-hydrogen atoms.
-        n_rotatable: Number of rotatable bonds.
+        mol: molecule represented by model
+        rotors: rotatable bond records
+        adj: adjacency list for rotor graph
+        ring_info: ring membership information
+        ring_flips: flippable non-aromatic rings (size 5-7)
+        heavy_atom_indices: non-hydrogen atom indices
+        n_rotatable: rotatable bond count
     """
 
     mol: Chem.Mol
@@ -168,11 +168,11 @@ def _get_dihedral_atoms(mol: Chem.Mol, bond_idx: int) -> tuple[int, int, int, in
     """Get four atoms defining the dihedral for a rotatable bond.
 
     Args:
-        mol: RDKit molecule.
-        bond_idx: Index of the bond.
+        mol: molecule to inspect
+        bond_idx: bond index
 
     Returns:
-        Tuple of 4 atom indices or None if not possible.
+        Atom indices defining dihedral, or None when unavailable
     """
     bond = mol.GetBondWithIdx(bond_idx)
     atom_i = bond.GetBeginAtomIdx()
@@ -203,11 +203,11 @@ def _classify_rotor(mol: Chem.Mol, bond: Chem.Bond) -> str:
     """Classify a rotatable bond by chemical type.
 
     Args:
-        mol: RDKit molecule.
-        bond: The bond to classify.
+        mol: molecule containing bond
+        bond: bond to classify
 
     Returns:
-        String classification of the rotor type.
+        Rotor classification label
     """
     atom1 = mol.GetAtomWithIdx(bond.GetBeginAtomIdx())
     atom2 = mol.GetAtomWithIdx(bond.GetEndAtomIdx())
@@ -229,9 +229,9 @@ def _classify_rotor(mol: Chem.Mol, bond: Chem.Bond) -> str:
         symbols = sorted([atom1.GetSymbol(), atom2.GetSymbol()])
         if symbols == ["C", "C"]:
             return "sp3_sp3_CC"
-        elif "N" in symbols:
+        if "N" in symbols:
             return "sp3_sp3_CN"
-        elif "O" in symbols:
+        if "O" in symbols:
             return "sp3_sp3_CO"
         return "sp3_sp3"
 
@@ -250,11 +250,11 @@ def _build_rotor_adjacency(rotors: list[Rotor], mol: Chem.Mol) -> list[list[int]
     Two rotors are adjacent if they share an atom (i.e., correlated motion).
 
     Args:
-        rotors: List of Rotor objects.
-        mol: RDKit molecule.
+        rotors: rotors to connect
+        mol: molecule containing rotors
 
     Returns:
-        Adjacency list where adj[i] contains indices of rotors adjacent to rotor i.
+        Adjacency list where `adj[i]` contains rotor indices adjacent to rotor `i`
     """
     n = len(rotors)
     adj: list[list[int]] = [[] for _ in range(n)]
@@ -281,14 +281,14 @@ def prepare_molecule(mol: Chem.Mol, add_hs: bool = True) -> Chem.Mol:
     """Prepare a molecule for conformer generation.
 
     Args:
-        mol: Input RDKit molecule.
-        add_hs: Whether to add hydrogens.
+        mol: molecule to prepare
+        add_hs: add hydrogens before returning
 
     Returns:
-        Prepared molecule with hydrogens and sanitization.
+        Prepared molecule with hydrogens and sanitization
 
     Raises:
-        ValueError: If molecule cannot be sanitized.
+        ValueError: molecule cannot be sanitized
     """
     mol = Chem.Mol(mol)  # Make a copy
 
@@ -321,11 +321,11 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
     stereo-preserving moves because plane reflection is an improper transform.
 
     Args:
-        mol: RDKit molecule.
-        atom_rings: List of atom index tuples, one per ring.
+        mol: molecule to inspect
+        atom_rings: ring atom-index tuples
 
     Returns:
-        List of RingFlip objects.
+        Flippable ring records
     """
     flips = []
 
@@ -377,10 +377,10 @@ def specified_stereochemistry(mol: Chem.Mol) -> StereoSignature:
     """Return specified tetrahedral and double-bond stereochemistry.
 
     Args:
-        mol: RDKit molecule.
+        mol: molecule to inspect
 
     Returns:
-        Stereochemistry labels assigned in molecule graph.
+        Stereochemistry labels assigned in molecule graph
     """
     work = Chem.Mol(mol)
     Chem.AssignStereochemistry(work, cleanIt=True, force=True)
@@ -395,11 +395,11 @@ def stereochemistry_from_conformer(mol: Chem.Mol, conf_id: int) -> StereoSignatu
     """Perceive tetrahedral and double-bond stereochemistry from conformer coordinates.
 
     Args:
-        mol: RDKit molecule.
-        conf_id: Conformer ID.
+        mol: molecule to inspect
+        conf_id: conformer ID
 
     Returns:
-        Stereochemistry labels perceived from 3D coordinates.
+        Stereochemistry labels perceived from 3D coordinates
     """
     work = Chem.Mol(mol)
     for atom in work.GetAtoms():
@@ -423,12 +423,12 @@ def conformer_matches_specified_stereochemistry(
     """Return whether conformer geometry preserves specified stereochemistry.
 
     Args:
-        mol: RDKit molecule.
-        conf_id: Conformer ID.
-        reference: Stereochemistry labels from input molecule.
+        mol: molecule to inspect
+        conf_id: conformer ID
+        reference: stereochemistry labels from input molecule
 
     Returns:
-        True when all specified labels match geometry perceived from conformer.
+        True when all specified labels match geometry perceived from conformer
     """
     if not reference.tetrahedral and not reference.bonds:
         return True
@@ -455,9 +455,9 @@ def _ring_flip_touches_specified_tetrahedral_stereo(
     coordinates can invert handedness while leaving RDKit chiral tags unchanged.
 
     Args:
-        mol: RDKit molecule.
-        ring_atoms: Ring atom indices.
-        junction_atoms: Ring-fusion atoms excluded from reflection.
+        mol: molecule to inspect
+        ring_atoms: ring atom indices
+        junction_atoms: ring-fusion atoms excluded from reflection
 
     Returns:
         True when reflected atom set includes specified stereocenter or one of
@@ -517,12 +517,12 @@ def _atoms_on_side(mol: Chem.Mol, start_atom: int, excluded_atom: int) -> frozen
     rotor list so the result is always well-defined.
 
     Args:
-        mol: RDKit molecule.
-        start_atom: Index to start BFS from (one end of the bond).
-        excluded_atom: The other end of the bond — never visited.
+        mol: molecule to traverse
+        start_atom: atom index to start BFS from
+        excluded_atom: other end of bond, never visited
 
     Returns:
-        frozenset of atom indices on start_atom's side of the bond.
+        Atom indices on `start_atom` side of bond
     """
     visited: set[int] = {start_atom}
     queue = [start_atom]
@@ -536,12 +536,12 @@ def _atoms_on_side(mol: Chem.Mol, start_atom: int, excluded_atom: int) -> frozen
     return frozenset(visited)
 
 
-def filter_constrained_rotors(rotor_model: "RotorModel", constrained_atoms: frozenset[int]) -> "RotorModel":
+def filter_constrained_rotors(rotor_model: RotorModel, constrained_atoms: frozenset[int]) -> RotorModel:
     """Return a new RotorModel containing only rotors whose moving fragment is constraint-free.
 
     A rotor around bond (i, j) is kept when the *distal* atoms on one side —
     those beyond the bond-axis atom that actually translate during
-    ``SetDihedralDeg`` — contain no constrained atoms.  The bond-axis atoms
+    `SetDihedralDeg` — contain no constrained atoms.  The bond-axis atoms
     (atom_i and atom_j) lie on the rotation axis and never physically move, so
     they are excluded from the movability check.  This allows boundary-attachment
     bonds at the edge of a pinned scaffold to be kept even when both bond atoms
@@ -554,11 +554,11 @@ def filter_constrained_rotors(rotor_model: "RotorModel", constrained_atoms: froz
     Ring flips are kept only when the entire ring is free of constrained atoms.
 
     Args:
-        rotor_model: Full rotor model built by build_rotor_model.
-        constrained_atoms: Atom indices that must not move.
+        rotor_model: full rotor model built by `build_rotor_model`
+        constrained_atoms: atom indices that must not move
 
     Returns:
-        New RotorModel with only free rotors and free ring flips.
+        Rotor model with only free rotors and free ring flips
     """
     mol = rotor_model.mol
     free_rotors: list[Rotor] = []
@@ -614,10 +614,10 @@ def build_rotor_model(mol: Chem.Mol) -> RotorModel:
     of their connectivity for correlated torsion moves.
 
     Args:
-        mol: RDKit molecule (should have Hs added).
+        mol: molecule with hydrogens already added
 
     Returns:
-        RotorModel containing rotor information.
+        Rotor model containing rotor information
     """
     rot_bonds = mol.GetSubstructMatches(Chem.MolFromSmarts("[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]"))
     rotors: list[Rotor] = []

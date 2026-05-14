@@ -1,7 +1,5 @@
 """Seed-planning policy for conformer generation."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -14,8 +12,13 @@ if TYPE_CHECKING:
     from ..perceive import RotorModel
     from .stats import GenerationStat
 
+type Config = ConformerConfig
+type GenerationStatsValue = GenerationStat
+type Molecule = Chem.Mol
+type Model = RotorModel
 
-def _is_large_flexible_non_macrocyclic(config: ConformerConfig, rotor_model: RotorModel) -> bool:
+
+def _is_large_flexible_non_macrocyclic(config: Config, rotor_model: Model) -> bool:
     """Return whether molecule matches large-flexible tuning regime."""
     tuning = get_runtime_tuning()
     return (
@@ -25,12 +28,16 @@ def _is_large_flexible_non_macrocyclic(config: ConformerConfig, rotor_model: Rot
     )
 
 
-def _count_hetero_heavy_atoms(mol: Chem.Mol) -> int:
+def _count_hetero_heavy_atoms(mol: Molecule) -> int:
     """Count heavy atoms that are not carbon."""
     return sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() not in {1, 6})
 
 
-def _resolve_seed_prune_rms_thresh(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> float:
+def _resolve_seed_prune_rms_thresh(
+    mol: Molecule,
+    rotor_model: Model,
+    config: Config,
+) -> float:
     """Resolve ETKDG prune threshold for current molecule."""
     tuning = get_runtime_tuning()
     threshold = config.seed_prune_rms_thresh
@@ -50,7 +57,7 @@ def _resolve_seed_prune_rms_thresh(mol: Chem.Mol, rotor_model: RotorModel, confi
     return max(threshold, tuning.large_flexible.prune_thresholds.flexible)
 
 
-def _resolve_seed_budget_scale(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> float:
+def _resolve_seed_budget_scale(mol: Molecule, rotor_model: Model, config: Config) -> float:
     """Resolve topology-aware scale factor for ETKDG seed count."""
     tuning = get_runtime_tuning()
     if not bool(config.topology_aware_seed_budget):
@@ -67,7 +74,7 @@ def _resolve_seed_budget_scale(mol: Chem.Mol, rotor_model: RotorModel, config: C
     return tuning.large_flexible.seed_scales.flexible
 
 
-def _resolve_seed_budget_floor(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> int:
+def _resolve_seed_budget_floor(mol: Molecule, rotor_model: Model, config: Config) -> int:
     """Resolve topology-aware lower bound for auto-computed seed count."""
     tuning = get_runtime_tuning()
     default_floor = 20
@@ -85,7 +92,11 @@ def _resolve_seed_budget_floor(mol: Chem.Mol, rotor_model: RotorModel, config: C
     return tuning.large_flexible.seed_floors.flexible
 
 
-def _is_low_flex_seed_budget_candidate(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> bool:
+def _is_low_flex_seed_budget_candidate(
+    mol: Molecule,
+    rotor_model: Model,
+    config: Config,
+) -> bool:
     """Return whether reduced low-flexibility auto-seeding can be applied."""
     tuning = get_runtime_tuning().low_flex_path
     budget = tuning.seed_budget
@@ -103,15 +114,15 @@ _SEED_ROTOR_KINK = 8  # rotors beyond this threshold contribute n_per_rotor-1 se
 _MACRO_SEED_CAP = 12  # ring sizes beyond this cap grow linearly rather than quadratically
 
 
-def _compute_n_seeds(rotor_model: RotorModel, n_per_rotor: int = 3) -> int:
+def _compute_n_seeds(rotor_model: Model, n_per_rotor: int = 3) -> int:
     """Compute topology-derived seed count before runtime reductions.
 
     Args:
-        rotor_model: Rotor model for molecule.
-        n_per_rotor: Seeds per rotatable bond.
+        rotor_model: rotor model for molecule
+        n_per_rotor: seeds per rotatable bond
 
     Returns:
-        Recommended number of seed conformers.
+        Recommended seed conformer count
     """
     n_rot = rotor_model.n_rotatable
     if n_rot <= _SEED_ROTOR_KINK:
@@ -124,7 +135,7 @@ def _compute_n_seeds(rotor_model: RotorModel, n_per_rotor: int = 3) -> int:
     return min(500, base + ring_bonus + macro_bonus)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SeedPlan:
     """Resolved ETKDG seed budget and pruning policy."""
 
@@ -136,16 +147,16 @@ class SeedPlan:
     reason: str
 
 
-def resolve_seed_plan(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerConfig) -> SeedPlan:
+def resolve_seed_plan(mol: Molecule, rotor_model: Model, config: Config) -> SeedPlan:
     """Resolve seed count and pruning policy for generation run.
 
     Args:
-        mol: RDKit molecule after preparation.
-        rotor_model: Rotor model for mol.
-        config: Generation configuration.
+        mol: molecule after preparation
+        rotor_model: rotor model for `mol`
+        config: generation configuration
 
     Returns:
-        Seed planning result consumed by generation paths.
+        Seed planning result consumed by generation paths
     """
     prune_rms_thresh = _resolve_seed_prune_rms_thresh(mol, rotor_model, config)
     if config.n_seeds is not None:
@@ -192,7 +203,7 @@ def resolve_seed_plan(mol: Chem.Mol, rotor_model: RotorModel, config: ConformerC
     )
 
 
-def populate_seed_plan_stats(stats: dict[str, GenerationStat], seed_plan: SeedPlan) -> None:
+def populate_seed_plan_stats(stats: dict[str, GenerationStatsValue], seed_plan: SeedPlan) -> None:
     """Populate seed-plan stats when instrumentation is enabled."""
     if not stats:
         return

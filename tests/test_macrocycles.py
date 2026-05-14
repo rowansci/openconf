@@ -1,19 +1,4 @@
-"""Cyclic-alkane regression tests for the macrocycle sampling pipeline.
-
-Each test asserts a concrete behavior of the sampler on a single-ring cycloalkane:
-
-- crankshaft move changes ring-atom coordinates,
-- seed pruning is disabled automatically on macrocycles,
-- the min-energy conformer matches a dense ETKDG+MMFF reference within
-  tolerance,
-- distinct ring-torsion families are recovered (not collapsed to one pucker).
-
-The reference minimum for each ring is computed in-test from a 500-seed ETKDG
-sweep with macrocycle distance bounds, so the tests self-contain their ground
-truth and track RDKit updates.
-"""
-
-from __future__ import annotations
+"""Macrocycle sampling regression tests for cyclic alkanes and related rings."""
 
 import numpy as np
 import pytest

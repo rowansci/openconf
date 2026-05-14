@@ -1,12 +1,11 @@
 """Move execution helpers for hybrid conformer proposals."""
 
-from __future__ import annotations
-
 import math
 import random
 from typing import TYPE_CHECKING
 
 import numpy as np
+from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
 
 from ..perceive import (
@@ -20,10 +19,13 @@ from ..perceive import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from rdkit import Chem
-
     from ..config import ConformerConfig
     from ..torsionlib import TorsionLibrary
+
+type Config = ConformerConfig
+type MoveOperator = Callable[[int], None]
+type RingFlipArc = tuple[int, int, list[int]]
+type TorsionAngleLibrary = TorsionLibrary
 
 
 def _set_dihedral(mol: Chem.Mol, conf_id: int, atoms: tuple[int, int, int, int], angle_deg: float) -> None:
@@ -65,8 +67,8 @@ class MoveExecutor:
         self,
         mol: Chem.Mol,
         rotor_model: RotorModel,
-        torsion_lib: TorsionLibrary,
-        config: ConformerConfig,
+        torsion_lib: TorsionAngleLibrary,
+        config: Config,
     ) -> None:
         """Initialize move execution state for one molecule."""
         self.mol = mol
@@ -103,7 +105,11 @@ class MoveExecutor:
             ]
             for ring_flip in rotor_model.ring_flips
         ]
-        self.operators: dict[str, Callable[[int], None]] = {
+        self.ring_flip_allowed_arcs = [
+            self._ring_flip_allowed_arcs(ring_flip.ring_atoms, ring_flip.junction_atoms)
+            for ring_flip in rotor_model.ring_flips
+        ]
+        self.operators: dict[str, MoveOperator] = {
             "single_rotor": self.apply_single_rotor_move,
             "multi_rotor": self.apply_multi_rotor_move,
             "correlated": self.apply_correlated_move,
@@ -135,6 +141,23 @@ class MoveExecutor:
                 visited.add(idx)
                 stack.append(idx)
         return frozenset(visited)
+
+    @staticmethod
+    def _ring_flip_allowed_arcs(
+        ring_atoms: tuple[int, ...],
+        junction_atoms: frozenset[int],
+    ) -> list[RingFlipArc]:
+        """Return movable ring arcs that leave fusion-junction atoms fixed."""
+        allowed_arcs: list[RingFlipArc] = []
+        n = len(ring_atoms)
+        for p in range(n):
+            for arc_len in range(1, n - 2):
+                q = (p + arc_len + 1) % n
+                interior = [(p + 1 + k) % n for k in range(arc_len)]
+                if any(ring_atoms[pos] in junction_atoms for pos in interior):
+                    continue
+                allowed_arcs.append((p, q, interior))
+        return allowed_arcs
 
     def _build_crankable_rings(
         self,
@@ -235,17 +258,6 @@ class MoveExecutor:
         base = random.uniform(30.0, 120.0) * random.choice([-1.0, 1.0])
         theta = np.deg2rad(base + np.random.normal(0.0, self.config.torsion_jitter_deg))
 
-        c, s = np.cos(theta), np.sin(theta)
-        one_c = 1.0 - c
-        ux, uy, uz = axis_unit
-        rotation = np.array(
-            [
-                [c + ux * ux * one_c, ux * uy * one_c - uz * s, ux * uz * one_c + uy * s],
-                [uy * ux * one_c + uz * s, c + uy * uy * one_c, uy * uz * one_c - ux * s],
-                [uz * ux * one_c - uy * s, uz * uy * one_c + ux * s, c + uz * uz * one_c],
-            ]
-        )
-
         moving: set[int] = set()
         for pos_in_ring in interior:
             moving |= subtrees[pos_in_ring]
@@ -253,9 +265,15 @@ class MoveExecutor:
             return
 
         moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
-        pts = all_pos[moving_arr] - axis_origin
-        rotated = pts @ rotation.T + axis_origin
-        all_pos[moving_arr] = rotated
+        _rodrigues_rotate(
+            all_pos,
+            moving_arr,
+            axis_origin,
+            float(axis_unit[0]),
+            float(axis_unit[1]),
+            float(axis_unit[2]),
+            theta,
+        )
         conf.SetPositions(all_pos)
 
     def apply_ring_flip_move(self, conf_id: int) -> None:
@@ -293,17 +311,8 @@ class MoveExecutor:
         """Apply proper rotational ring-pucker moves and keep only stereo-valid results."""
         ring_flip = self.rotor_model.ring_flips[ring_flip_idx]
         ring_atoms = ring_flip.ring_atoms
-        n = len(ring_atoms)
         subtrees = self.ring_flip_subtrees[ring_flip_idx]
-        allowed_arcs: list[tuple[int, int, int, list[int]]] = []
-
-        for p in range(n):
-            for arc_len in range(1, n - 2):
-                q = (p + arc_len + 1) % n
-                interior = [(p + 1 + k) % n for k in range(arc_len)]
-                if any(ring_atoms[pos] in ring_flip.junction_atoms for pos in interior):
-                    continue
-                allowed_arcs.append((p, q, arc_len, interior))
+        allowed_arcs = self.ring_flip_allowed_arcs[ring_flip_idx]
 
         if not allowed_arcs:
             return
@@ -312,7 +321,7 @@ class MoveExecutor:
         original_pos = conf.GetPositions()
         for _ in range(10):
             all_pos = original_pos.copy()
-            p, q, _arc_len, interior = random.choice(allowed_arcs)
+            p, q, interior = random.choice(allowed_arcs)
             anchor_p_idx = ring_atoms[p]
             anchor_q_idx = ring_atoms[q]
             axis_origin = all_pos[anchor_p_idx]

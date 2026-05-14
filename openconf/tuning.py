@@ -1,14 +1,12 @@
 """Bundled runtime-tuning data for conformer generation."""
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RuntimeTuningDefaults:
     """Default-valued knobs that can be auto-tuned at runtime."""
 
@@ -19,7 +17,7 @@ class RuntimeTuningDefaults:
     topology_aware_seed_budget: bool | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RuntimeTuningThresholds:
     """Topology-aware scalar adjustments for large flexible molecules."""
 
@@ -28,7 +26,7 @@ class RuntimeTuningThresholds:
     hydrocarbon: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RuntimeTuningSeedFloors:
     """Topology-aware lower bounds for auto-computed seed counts."""
 
@@ -37,7 +35,7 @@ class RuntimeTuningSeedFloors:
     hydrocarbon: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LargeFlexibleRuntimeTuning:
     """Runtime tuning profile for large non-macrocyclic flexible molecules."""
 
@@ -49,7 +47,7 @@ class LargeFlexibleRuntimeTuning:
     seed_floors: RuntimeTuningSeedFloors
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MacrocycleSeedingTuning:
     """ETKDG seeding tweaks for macrocyclic molecules."""
 
@@ -59,7 +57,7 @@ class MacrocycleSeedingTuning:
     amide_cis_trans_seeds: bool  # enumerate in-ring tertiary amide cis/trans variants
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MoveSchedulingTuning:
     """Move-scheduling defaults and fallback rules."""
 
@@ -70,14 +68,14 @@ class MoveSchedulingTuning:
     availability_fallbacks: dict[str, str]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ClashCheckTuning:
     """Clash-check exemptions for specific move types."""
 
     exempt_moves: frozenset[str]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LowFlexSeedBudgetTuning:
     """Seed-budget cap for simple low-flexibility molecules."""
 
@@ -88,7 +86,7 @@ class LowFlexSeedBudgetTuning:
     max_seeds: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LowFlexPathTuning:
     """Settings for the ETKDG-only low-flexibility fast path."""
 
@@ -98,7 +96,7 @@ class LowFlexPathTuning:
     seed_budget: LowFlexSeedBudgetTuning
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RuntimeTuning:
     """Complete bundled runtime-tuning settings."""
 

@@ -16,11 +16,11 @@ def write_sdf(
     """Write conformers to an SDF file.
 
     Args:
-        mol: RDKit molecule with conformers.
-        conf_ids: List of conformer IDs to write.
-        output_path: Output file path.
-        energies: Optional energies for each conformer.
-        metadata: Optional metadata dict mapping conf_id to properties.
+        mol: molecule with conformers
+        conf_ids: conformer IDs to write
+        output_path: destination file path
+        energies: energies for each conformer
+        metadata: metadata mapping conformer IDs to properties
     """
     writer = Chem.SDWriter(str(output_path))
 
@@ -60,12 +60,12 @@ def write_xyz(
     """Write conformers to an XYZ file (concatenated).
 
     Args:
-        mol: RDKit molecule with conformers.
-        conf_ids: List of conformer IDs to write.
-        output_path: Output file path.
-        energies: Optional energies for each conformer.
+        mol: molecule with conformers
+        conf_ids: conformer IDs to write
+        output_path: destination file path
+        energies: energies for each conformer
     """
-    with open(output_path, "w") as f:
+    with Path(output_path).open("w") as f:
         for i, conf_id in enumerate(conf_ids):
             conf = mol.GetConformer(conf_id)
             n_atoms = mol.GetNumAtoms()
@@ -89,24 +89,24 @@ def write_xyz(
 def read_xyz(input_path: str | Path) -> Chem.Mol:
     """Read an XYZ file into an RDKit molecule with bond connectivity perceived.
 
-    ``Chem.MolFromXYZFile`` reads only atom positions; connectivity is inferred
-    from interatomic distances via ``rdDetermineBonds.DetermineConnectivity``
+    `Chem.MolFromXYZFile` reads only atom positions; connectivity is inferred
+    from interatomic distances via `rdDetermineBonds.DetermineConnectivity`
     (distance-threshold matching, no Hückel).  Bond orders are left as single;
     this is correct for saturated ligands and acceptable for metals where RDKit
     lacks valence tables.
 
     The returned molecule already has all hydrogens as explicit atoms and a
     single conformer with the coordinates from the file.  Pass it to
-    ``generate_conformers`` with ``add_hs=False`` to avoid re-adding hydrogens.
+    `generate_conformers` with `add_hs=False` to avoid re-adding hydrogens.
 
     Args:
-        input_path: Path to an XYZ file (single structure).
+        input_path: XYZ file path for single structure
 
     Returns:
-        RDKit molecule with bonds and one conformer.
+        Molecule with bonds and one conformer
 
     Raises:
-        ValueError: If the XYZ file cannot be parsed.
+        ValueError: XYZ file cannot be parsed
     """
     from rdkit.Chem import rdDetermineBonds
 
@@ -134,15 +134,15 @@ def read_sdf(input_path: str | Path) -> tuple[Chem.Mol, list[int], list[float]]:
     """Read conformers from an SDF file.
 
     This is the low-level reader and returns only coordinates + energies. Per-
-    conformer metadata (``source``, custom tags) written by
+    conformer metadata (`source`, custom tags) written by
     :meth:`ConformerEnsemble.to_sdf` is discarded. Use
     :meth:`ConformerEnsemble.from_sdf` if you need to round-trip metadata.
 
     Args:
-        input_path: Input file path.
+        input_path: source file path
 
     Returns:
-        Tuple of (mol, conf_ids, energies). Energies will be empty if not present.
+        Molecule, conformer IDs, and energies; energies are empty if not present
     """
     supplier = Chem.SDMolSupplier(str(input_path), removeHs=False)
 
@@ -185,11 +185,11 @@ def mol_to_smiles(mol: Chem.Mol, canonical: bool = True) -> str:
     """Convert molecule to SMILES string.
 
     Args:
-        mol: RDKit molecule.
-        canonical: Whether to canonicalize.
+        mol: molecule to convert
+        canonical: canonicalize output
 
     Returns:
-        SMILES string.
+        SMILES representation
     """
     # Remove Hs for cleaner SMILES
     mol_no_h = Chem.RemoveHs(mol)
@@ -200,14 +200,14 @@ def smiles_to_mol(smiles: str, add_hs: bool = True) -> Chem.Mol:
     """Convert SMILES to molecule.
 
     Args:
-        smiles: SMILES string.
-        add_hs: Whether to add hydrogens.
+        smiles: SMILES representation
+        add_hs: add hydrogens before returning
 
     Returns:
-        RDKit molecule.
+        Parsed molecule
 
     Raises:
-        ValueError: If SMILES cannot be parsed.
+        ValueError: SMILES cannot be parsed
     """
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -227,12 +227,12 @@ def get_conformer_summary(
     """Get a summary string for a conformer ensemble.
 
     Args:
-        mol: RDKit molecule.
-        conf_ids: List of conformer IDs.
-        energies: List of energies.
+        mol: molecule with conformers
+        conf_ids: conformer IDs
+        energies: energies aligned with conformer IDs
 
     Returns:
-        Summary string.
+        Human-readable summary
     """
     n_confs = len(conf_ids)
     n_atoms = mol.GetNumAtoms()

@@ -1,11 +1,11 @@
 """Generation-stats helpers for proposal workflows."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..config import ConformerConfig
+
+type Config = ConformerConfig
 
 GenerationStat = float | int | str
 
@@ -59,7 +59,7 @@ def new_generation_stats() -> dict[str, GenerationStat]:
 def populate_effective_config_stats(
     stats: dict[str, GenerationStat],
     *,
-    config: ConformerConfig,
+    config: Config,
     tuned_defaults_applied: bool,
     seed_prune_rms_thresh: float,
 ) -> None:

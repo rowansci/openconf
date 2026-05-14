@@ -1,7 +1,4 @@
-"""Hybrid conformer proposal strategy.
-
-Combines torsion library biasing with MCMM-style exploration.
-"""
+"""Hybrid conformer proposal strategy with torsion-biased MCMM exploration."""
 
 import dataclasses
 import random
@@ -10,9 +7,10 @@ import time
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Geometry import rdGeometry
 
 from ..config import ConformerConfig, ConstraintSpec
-from ..perceive import RotorModel, filter_constrained_rotors
+from ..perceive import RotorModel, _is_metal, filter_constrained_rotors
 from ..pool import ConformerPool
 from ..relax import (
     _METAL_LIGAND_DISTANCE_FORCE_CONSTANT,
@@ -28,6 +26,7 @@ from ..tuning import (
     resolve_forced_move,
     resolve_move_probabilities,
 )
+from .amide_seeds import find_ring_tertiary_amide_dihedrals, generate_amide_variant_seeds
 from .candidates import CandidateBatchWorkspace, ClashChecker, build_nonbonded_mask
 from .moves import MoveExecutor
 from .seeding import (
@@ -83,11 +82,11 @@ def _copy_conformer(mol: Chem.Mol, source_conf_id: int) -> int:
     """Copy a conformer and return the new ID.
 
     Args:
-        mol: RDKit molecule.
-        source_conf_id: Source conformer ID.
+        mol: molecule containing source conformer
+        source_conf_id: source conformer ID
 
     Returns:
-        New conformer ID.
+        New conformer ID
     """
     source_conf = mol.GetConformer(int(source_conf_id))
     new_conf = Chem.Conformer(source_conf)
@@ -116,15 +115,15 @@ class HybridProposer:
         """Initialize the hybrid proposer.
 
         Args:
-            mol: RDKit molecule.
-            rotor_model: Rotor model for the molecule.
-            torsion_lib: Torsion library for biased sampling.
-            config: Generation configuration.
-            constraint_spec: Optional positional constraints. When provided,
+            mol: molecule to sample
+            rotor_model: rotor model for molecule
+            torsion_lib: torsion library for biased sampling
+            config: generation configuration
+            constraint_spec: positional constraints. When provided,
                 ETKDG seeding is replaced by seeding from an existing conformer,
                 global shake moves are suppressed, and minimization applies MMFF
                 position restraints to keep constrained atoms fixed.
-            stats: Optional benchmark timing/counter mapping updated in place.
+            stats: benchmark timing/counter mapping updated in place
         """
         self.constraint_spec = constraint_spec
         self.mol = mol
@@ -132,8 +131,6 @@ class HybridProposer:
         self.torsion_lib = torsion_lib
         self.config = config
         self.stats = stats
-
-        from ..perceive import _is_metal
 
         self._metal_atom_indices: frozenset[int] = frozenset(a.GetIdx() for a in mol.GetAtoms() if _is_metal(a))
         self._metal_ref_pos: dict[int, np.ndarray] = {}
@@ -213,11 +210,11 @@ class HybridProposer:
         """Generate seed conformers using ETKDG, then fast-minimize in batch.
 
         Args:
-            n_seeds: Number of seed conformers to generate.
-            prune_rms_thresh: Optional pre-resolved ETKDG prune threshold.
+                n_seeds: seed conformer count to generate
+                prune_rms_thresh: pre-resolved ETKDG prune threshold
 
         Returns:
-            List of (conf_id, energy_kcal) tuples for successfully embedded seeds.
+                Identifiers and energies for successfully embedded seeds
         """
         params = AllChem.ETKDGv3()
         params.randomSeed = self.config.random_seed or -1
@@ -251,8 +248,6 @@ class HybridProposer:
         # atoms without RDKit distance-bound tables (lanthanides, actinides, …)
         # do not land in random positions after embedding.
         if self._metal_atom_indices and self.mol.GetNumConformers() > 0:
-            from rdkit.Geometry import rdGeometry
-
             ref_conf = self.mol.GetConformers()[0]
             params.SetCoordMap(
                 {int(idx): rdGeometry.Point3D(*ref_conf.GetAtomPosition(idx)) for idx in self._metal_atom_indices}
@@ -311,8 +306,6 @@ class HybridProposer:
         if mmff_props is not None and ring_info.get("has_macrocycle") and seed_results:
             tuning = get_runtime_tuning().macrocycle_seeding
             if tuning.amide_cis_trans_seeds:
-                from .amide_seeds import find_ring_tertiary_amide_dihedrals, generate_amide_variant_seeds
-
                 amide_dihedrals = find_ring_tertiary_amide_dihedrals(self.mol)
                 if amide_dihedrals:
                     best_base = min(seed_results, key=lambda x: x[1])[0]
@@ -330,8 +323,8 @@ class HybridProposer:
         drift that the position restraints did not fully suppress.
 
         Args:
-            mol: RDKit molecule containing the conformer.
-            conf_id: Conformer ID to update in place.
+            mol: molecule containing conformer
+            conf_id: conformer ID to update in place
         """
         if not self._constrained_ref_pos:
             return
@@ -343,8 +336,8 @@ class HybridProposer:
         """Snap metal centers back to reference coordinates when available.
 
         Args:
-            mol: RDKit molecule containing conformer.
-            conf_id: Conformer ID to update.
+            mol: molecule containing conformer
+            conf_id: conformer ID to update
         """
         if not self._metal_ref_pos:
             return
@@ -386,10 +379,10 @@ class HybridProposer:
         constrained atoms so the core stays at the MCS-aligned pose.
 
         Args:
-            conf_id: ID of the starting conformer already present in self.mol.
+            conf_id: starting conformer ID already present in `self.mol`
 
         Returns:
-            List of one (conf_id, energy_kcal) tuple, or empty list on failure.
+            Single conformer ID and energy, or empty result on failure
         """
         energy = self._minimize_constrained(self.mol, conf_id, use_fast=True)
         if not np.isfinite(energy):
@@ -405,10 +398,10 @@ class HybridProposer:
         start at the origin and are relaxed by minimization.
 
         Args:
-            positions: Array of shape (n_atoms, 3) with atom coordinates.
+            positions: atom coordinates
 
         Returns:
-            List of one (conf_id, energy_kcal) tuple, or empty list on failure.
+            Single conformer ID and energy, or empty result on failure
         """
         n_atoms = self.mol.GetNumAtoms()
         conf = Chem.Conformer(n_atoms)
@@ -436,12 +429,12 @@ class HybridProposer:
         """Minimize a conformer with MMFF position restraints on constrained atoms.
 
         Args:
-            mol: RDKit molecule containing the conformer.
-            conf_id: Conformer ID to minimize in place.
-            use_fast: If True, use fast_minimizer iterations; otherwise full.
+            mol: molecule containing conformer
+            conf_id: conformer ID to minimize in place
+            use_fast: use fast minimizer iterations; otherwise full
 
         Returns:
-            Energy in kcal/mol after minimization, or inf on failure.
+            Energy in kcal/mol after minimization, or inf on failure
         """
         assert self.constraint_spec is not None
         minimizer = self.fast_minimizer if use_fast else self.full_minimizer
@@ -472,15 +465,15 @@ class HybridProposer:
         self._reset_metal_positions(mol, conf_id)
         return energy
 
-    def _propose_constrained(self, pool: "ConformerPool", step: int) -> tuple[int, float, str] | None:
+    def _propose_constrained(self, pool: ConformerPool, step: int) -> tuple[int, float, str] | None:
         """Propose a single conformer using constrained minimization.
 
         Args:
-            pool: Conformer pool for parent selection.
-            step: Current step number.
+                pool: conformer pool for parent selection
+                step: current step number
 
         Returns:
-            Tuple of (conf_id, energy, source) or None if failed.
+                Identifier, energy, and source, or None if failed
         """
         result = self._generate_candidate(pool, step)
         if result is None:
@@ -498,10 +491,10 @@ class HybridProposer:
         """Select move type based on probabilities and step count.
 
         Args:
-            step: Current step number.
+            step: current step number
 
         Returns:
-            Move type string.
+            Move type string
         """
         forced = resolve_forced_move(
             step,
@@ -542,11 +535,11 @@ class HybridProposer:
         """Generate several torsion candidates and keep lowest clash score.
 
         Args:
-            parent_id: Parent conformer ID.
-            move_type: Torsion move type to apply.
+                parent_id: parent conformer ID
+                move_type: torsion move type to apply
 
         Returns:
-            Conformer ID for best trial.
+                Identifier for best trial
         """
         best_conf_id: int | None = None
         best_score = float("inf")
@@ -584,11 +577,11 @@ class HybridProposer:
 
         The conformer is only scored later, when a dedupe pass decides whether
         it was geometrically novel. Called from the main loop right after a
-        successful ``pool.insert`` for a candidate produced by this proposer.
+        successful `pool.insert` for a candidate produced by this proposer.
 
         Args:
-            conf_id: RDKit conformer ID of the accepted candidate.
-            move_type: Move type that produced it.
+            conf_id: accepted candidate conformer ID
+            move_type: move type that produced it
         """
         self._pending_tags[conf_id] = move_type
 
@@ -601,11 +594,11 @@ class HybridProposer:
         are treated identically — both mean "this pose didn't add value" —
         which is the intended signal for acceptance-vs-novelty.
 
-        Triggers an adaptation step at the end when ``adaptive_moves`` is on,
+        Triggers an adaptation step at the end when `adaptive_moves` is on,
         so the move probabilities shift in lockstep with the dedupe cycle.
 
         Args:
-            surviving_ids: Conformer IDs still in the pool after dedupe.
+            surviving_ids: conformer IDs still in pool after dedupe
         """
         for cid, move_type in self._pending_tags.items():
             self._move_attempts[move_type] = self._move_attempts.get(move_type, 0.0) + 1.0
@@ -617,7 +610,7 @@ class HybridProposer:
             self._adapt_move_probs()
 
     def _adapt_move_probs(self) -> None:
-        """Recompute ``_current_move_probs`` as a prior+empirical blend.
+        """Recompute `_current_move_probs` as a prior+empirical blend.
 
         For each move type: empirical = rewards / attempts (fallback to base
         prior when unsampled). The learned distribution is the normalized
@@ -656,15 +649,15 @@ class HybridProposer:
     def _generate_candidate(self, pool: ConformerPool, step: int) -> tuple[int, str] | None:
         """Copy a parent, apply a move, optionally clash-check.
 
-        Adds the candidate conformer to self.mol and returns its conf_id.
-        Returns None (and cleans up) if parent unavailable or clash detected.
+            Adds the candidate conformer to self.mol and returns its conf_id.
+            Returns None (and cleans up) if parent unavailable or clash detected.
 
         Args:
-            pool: Conformer pool for parent selection.
-            step: Current step number (used for move-type selection).
+                pool: conformer pool for parent selection
+                step: current step number used for move-type selection
 
         Returns:
-            Tuple of (conf_id, move_type), or None if candidate was rejected.
+                Identifier and move type, or None if candidate was rejected
         """
         parent_start = time.perf_counter()
         parent_id = pool.get_parent(strategy=self.config.parent_strategy)
@@ -707,11 +700,11 @@ class HybridProposer:
         """Propose a single conformer (sequential minimization).
 
         Args:
-            pool: Conformer pool for parent selection.
-            step: Current step number.
+                pool: conformer pool for parent selection
+                step: current step number
 
         Returns:
-            Tuple of (conf_id, energy, source) or None if failed.
+                Identifier, energy, and source, or None if failed
         """
         result = self._generate_candidate(pool, step)
         if result is None:
@@ -742,11 +735,11 @@ class HybridProposer:
         does not support custom force field terms).
 
         Args:
-            pool: Conformer pool for parent selection.
-            step: Current step number (used for move-type selection of first item).
+            pool: conformer pool for parent selection
+            step: current step number used for move-type selection of first item
 
         Returns:
-            List of (conf_id, energy, source) tuples for accepted conformers.
+            Accepted conformer IDs, energies, and sources
         """
         # Constrained mode: per-conformer MMFF with position restraints.
         if self.constraint_spec is not None:
@@ -807,15 +800,15 @@ class HybridProposer:
         """Run full MMFF minimization on the final selected conformers.
 
         Args:
-            mol: RDKit molecule containing the conformers to refine.
-            final_ids: Conformer IDs to refine (others are removed).
-            num_threads: Number of threads for parallel minimization (UFF fallback only).
-            max_iters: Maximum MMFF iterations.
-            variant: MMFF variant ("MMFF94" or "MMFF94s").
-            dielectric: Dielectric constant for electrostatics.
+            mol: molecule containing conformers to refine
+            final_ids: conformer IDs to refine; others are removed
+            num_threads: thread count for parallel minimization; UFF fallback only
+            max_iters: maximum MMFF iterations
+            variant: MMFF variant; `"MMFF94"` or `"MMFF94s"`
+            dielectric: dielectric constant for electrostatics
 
         Returns:
-            List of refined energies in kcal/mol, aligned to final_ids.
+            Refined energies in kcal/mol aligned to `final_ids`
         """
         # Keep only finals to avoid optimizing thousands of confs
         final_set = set(final_ids)
@@ -843,13 +836,13 @@ class HybridProposer:
         during final refinement.
 
         Args:
-            mol: RDKit molecule containing the conformers to refine.
-            final_ids: Conformer IDs to refine.
-            max_iters: Maximum MMFF iterations.
-            dielectric: Dielectric constant for the refinement pass.
+            mol: molecule containing conformers to refine
+            final_ids: conformer IDs to refine
+            max_iters: maximum MMFF iterations
+            dielectric: dielectric constant for refinement pass
 
         Returns:
-            List of refined energies in kcal/mol, aligned to final_ids.
+            Refined energies in kcal/mol aligned to `final_ids`
         """
         assert self.constraint_spec is not None
 
@@ -901,13 +894,13 @@ def run_hybrid_generation(
     """Run hybrid conformer generation.
 
     Args:
-        mol: RDKit molecule (will be modified).
-        rotor_model: Rotor model.
-        config: Generation configuration.
-        torsion_library: Optional torsion library override.
+        mol: molecule to modify
+        rotor_model: rotor model
+        config: generation configuration
+        torsion_library: torsion library override
 
     Returns:
-        Tuple of (mol, conf_ids, energies, generation_stats).
+        Molecule, conformer IDs, energies, and generation stats
     """
     total_start = time.perf_counter()
     stats = new_generation_stats() if config.collect_stats else {}
@@ -1076,13 +1069,13 @@ def run_low_flex_generation(
     skipping the proposal loop entirely.
 
     Args:
-        mol: RDKit molecule (will be modified).
-        rotor_model: Rotor model.
-        config: Generation configuration.
-        torsion_library: Optional torsion library override.
+        mol: molecule to modify
+        rotor_model: rotor model
+        config: generation configuration
+        torsion_library: torsion library override
 
     Returns:
-        Tuple of (mol, conf_ids, energies, generation_stats).
+        Molecule, conformer IDs, energies, and generation stats
     """
     total_start = time.perf_counter()
     stats = new_generation_stats() if config.collect_stats else {}

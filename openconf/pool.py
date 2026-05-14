@@ -11,6 +11,8 @@ from rdkit.Chem import Descriptors3D, rdFreeSASA
 from .config import ConformerConfig
 from .dedupe import prism_dedupe
 
+type Pool = ConformerPool
+
 
 def _energy_or_inf(energy: float | None) -> float:
     """Return a finite sentinel for missing energies."""
@@ -28,14 +30,14 @@ def _build_3d_descriptors(
     Uses SASA, polar SASA, radius of gyration, PBF, NPR1, NPR2.
 
     Args:
-        mol: RDKit molecule (must have conformer conf_id).
-        conf_id: RDKit conformer ID.
+        mol: molecule containing `conf_id`
+        conf_id: conformer ID
         radii: Pre-computed SASA radii from rdFreeSASA.classifyAtoms(mol).
             Despite the name, CalcSASA's confIdx parameter accepts a conf_id.
-        polar_atom_indices: Indices of polar heavy atoms for polar SASA sum.
+        polar_atom_indices: polar heavy atom indices for polar SASA sum
 
     Returns:
-        List of 3D descriptor values [sasa, polar_sasa, rog, pbf, npr1, npr2].
+        Descriptor values `[sasa, polar_sasa, rog, pbf, npr1, npr2]`
     """
     # SASA — writes per-atom "SASA" props as a side-effect; read immediately.
     # Note: rdFreeSASA.CalcSASA's confIdx parameter accepts a conf_id (RDKit ID),
@@ -84,13 +86,13 @@ def _pick_diverse_maxmin(
     pairwise distance rather than clustering.
 
     Args:
-        mol: RDKit molecule with conformers.
-        conf_ids: List of conformer IDs to choose from.
-        energies: Energies corresponding to each conformer.
-        k: Number of conformers to select.
+        mol: molecule with conformers
+        conf_ids: conformer IDs to choose from
+        energies: energies corresponding to each conformer
+        k: conformer count to select
 
     Returns:
-        List of selected conformer IDs (length <= k).
+        Selected conformer IDs, at most `k`
     """
     if k >= len(conf_ids):
         return conf_ids
@@ -136,10 +138,10 @@ class ConformerRecord:
     """Metadata for a single conformer.
 
     Attributes:
-        conf_id: RDKit conformer ID.
-        energy_kcal: Energy in kcal/mol (may be None if not computed).
-        source: How this conformer was generated.
-        tags: Additional metadata (step index, torsion fingerprint, etc.).
+        conf_id: conformer ID
+        energy_kcal: energy in kcal/mol; None if not computed
+        source: how this conformer was generated
+        tags: additional metadata such as step index or torsion fingerprint
     """
 
     conf_id: int
@@ -152,7 +154,7 @@ class ConformerRecord:
 class ParentSampler:
     """Cached parent selector for a conformer pool."""
 
-    pool: "ConformerPool"
+    pool: Pool
     _dirty: bool = field(default=True, init=False, repr=False)
     _records_ref: dict[int, ConformerRecord] | None = field(default=None, init=False, repr=False)
     _records_version: int = field(default=-1, init=False, repr=False)
@@ -201,7 +203,7 @@ class ParentSampler:
         return self._conf_ids.copy()
 
     def energies(self) -> list[float]:
-        """Return cached energies aligned to ``conf_ids``."""
+        """Return cached energies aligned to `conf_ids`."""
         self._ensure_fresh()
         return self._energies.tolist()
 
@@ -233,8 +235,8 @@ class ConformerPool:
     and final selection.
 
     Attributes:
-        mol: RDKit molecule (stores conformers).
-        config: Generation configuration.
+        mol: molecule storing conformers
+        config: generation configuration
     """
 
     mol: Chem.Mol
@@ -257,7 +259,7 @@ class ConformerPool:
 
     @property
     def size(self) -> int:
-        """Number of conformers in pool."""
+        """Conformer count in pool."""
         return len(self.records)
 
     @property
@@ -267,12 +269,12 @@ class ConformerPool:
 
     @property
     def conf_ids(self) -> list[int]:
-        """List of conformer IDs in pool."""
+        """Conformer IDs in pool."""
         return self._parent_sampler.conf_ids()
 
     @property
     def energies(self) -> list[float]:
-        """List of energies (in order of conf_ids)."""
+        """Energies aligned with `conf_ids`."""
         return self._parent_sampler.energies()
 
     def _mark_records_changed(self) -> None:
@@ -290,13 +292,13 @@ class ConformerPool:
         """Insert a conformer into the pool.
 
         Args:
-            conf_id: RDKit conformer ID.
-            energy: Energy in kcal/mol.
-            source: Source of the conformer.
-            tags: Additional metadata.
+            conf_id: conformer ID
+            energy: energy in kcal/mol
+            source: source of conformer
+            tags: additional metadata
 
         Returns:
-            True if conformer was accepted, False if rejected.
+            True when conformer was accepted, False when rejected
         """
         # Update best energy (only ever decreases; no full scan needed).
         self._best_energy = min(self._best_energy, energy)
@@ -350,7 +352,7 @@ class ConformerPool:
         """Run deduplication on the pool.
 
         Returns:
-            Number of conformers removed.
+            Conformer count removed
         """
         if self.size <= 1:
             return 0
@@ -390,7 +392,7 @@ class ConformerPool:
         if still over max_out.
 
         Returns:
-            List of selected conformer IDs.
+            Selected conformer IDs
         """
         # Run final dedupe with PRISM
         self.dedupe()
@@ -418,9 +420,9 @@ class ConformerPool:
         """Select a parent conformer for mutation.
 
         Args:
-            strategy: Selection strategy ("softmax", "uniform", "best").
+                strategy: selection strategy; `"softmax"`, `"uniform"`, or `"best"`
 
         Returns:
-            Conformer ID or None if pool is empty.
+            Selected identifier, or None if pool is empty
         """
         return self._parent_sampler.select(strategy, self.config.parent_softmax_temperature_kcal)

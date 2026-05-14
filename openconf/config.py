@@ -69,12 +69,12 @@ class ConstraintSpec:
 
     Attributes:
         constrained_atoms: Atom indices that must not move. These are indices
-            into the molecule after hydrogen addition — since ``Chem.AddHs``
+            into the molecule after hydrogen addition — since `Chem.AddHs`
             preserves all existing atom indices, you can pass indices from either
             the heavy-atom mol or the H-added mol interchangeably.
         position_force_constant: MMFF force constant (kcal/mol/Å²) for the
             harmonic position restraints applied to constrained atoms.
-            The default (1000.0) is very stiff and effectively freezes the core.
+            Default 1000.0 is very stiff and effectively freezes the core.
     """
 
     constrained_atoms: frozenset[int]
@@ -91,18 +91,18 @@ class ConformerConfig:
     Attributes:
         max_out: Maximum number of conformers to return.
         pool_max: Maximum pool size during generation.
-        n_seeds: Number of initial ETKDG seed conformers. If None (default),
-            computed automatically as ``max(20, n_rotatable * seed_n_per_rotor)`` with additional
+        n_seeds: initial ETKDG seed conformer count. When None (default),
+            computed automatically as `max(20, n_rotatable * seed_n_per_rotor)` with additional
             seeds for non-aromatic rings and macrocycles.
-        n_steps: Number of exploration steps for the walker.
+        n_steps: exploration step count for walker.
         energy_window_kcal: Energy window for keeping conformers (kcal/mol).
         dedupe_period: Run deduplication every N steps.
         shake_period: Apply global shake every N steps.
         move_probs: Probabilities for each move type.
         torsion_jitter_deg: Random jitter to add to torsion angles (degrees).
-        minimizer: Which minimizer to use. Only ``"rdkit_mmff"`` is supported.
+        minimizer: Which minimizer to use. Only `"rdkit_mmff"` is supported.
         random_seed: Random seed for reproducibility.
-        num_threads: Number of threads for parallel operations.
+        num_threads: thread count for parallel operations.
         use_heavy_atoms_only: Use only heavy atoms for RMSD calculations.
         clash_threshold: Distance threshold for clash detection (Angstroms).
         fast_minimization_iters: Iterations for quick minimization.
@@ -123,13 +123,13 @@ class ConformerConfig:
               but most prone to mode collapse; generally not recommended when diversity
               is important.
         parent_softmax_temperature_kcal: Temperature (kcal/mol) for the softmax
-            parent-selection weights when ``parent_strategy == "softmax"``. Larger
+            parent-selection weights when `parent_strategy == "softmax"`. Larger
             values flatten the distribution (more exploration); smaller values
             concentrate sampling on the lowest-energy pool members. Default 2.0
             matches typical MCMM practice and is unrelated to physical temperature.
         final_select: How the final conformer set is chosen.
-        skip_clash_check: If True, skip the pre-minimization clash check entirely.
-            If False (default), use a fast numpy-based clash filter that avoids
+        skip_clash_check: skip the pre-minimization clash check entirely.
+            When False (default), use a fast numpy-based clash filter that avoids
             expensive minimization of heavily clashed structures. For large or
             flexible molecules this is a net speedup; for tiny molecules (<15 heavy
             atoms) the check overhead may slightly exceed the savings.
@@ -142,21 +142,21 @@ class ConformerConfig:
             the batch-MMFF cost. Lower values (e.g. 0.5 Å) give more seeds.
         seed_minimization_iters: MMFF iteration count used only for seed cleanup
             (default 10). Seeds only need rough geometry to seed the MCMM walk, so
-            fewer iterations than ``fast_minimization_iters`` (default 20) are
+            fewer iterations than `fast_minimization_iters` (default 20) are
             sufficient and reduce seeding cost without changing proposal behaviour.
         topology_aware_seed_pruning: Whether to use a more aggressive ETKDG
             prune RMS threshold for large non-macrocyclic flexible molecules.
-            ``None`` (default) lets topology-aware tuning decide; ``True``
-            forces the heuristic on; ``False`` forces it off.
+            `None` (default) lets topology-aware tuning decide; `True`
+            forces the heuristic on; `False` forces it off.
         topology_aware_seed_budget: Whether to reduce computed seed count for
             large non-macrocyclic flexible molecules using simple topology
-            heuristics. ``None`` (default) lets topology-aware tuning decide;
-            ``True`` forces the heuristic on; ``False`` forces it off.
-        minimize_batch_size: Number of proposals to accumulate before running a
+            heuristics. `None` (default) lets topology-aware tuning decide;
+            `True` forces the heuristic on; `False` forces it off.
+        minimize_batch_size: proposal count to accumulate before running a
             single parallel MMFFOptimizeMoleculeConfs call. Values > 1 use
             numThreads cores simultaneously and give substantial speedup on
             multi-core machines. 1 = sequential (original behaviour).
-        do_final_refine: If True (default), run a full MMFF minimization on the
+        do_final_refine: run a full MMFF minimization on the
             final conformer set using max_minimization_iters. Set to False to skip
             this step and return the fast-minimized geometries directly — useful
             for docking-prep or virtual screening workflows where accurate MMFF
@@ -170,25 +170,25 @@ class ConformerConfig:
             refinement pass. Lower than fast_dielectric (default 4.0) to give
             more physically meaningful energies representative of a condensed-phase
             environment (protein interior / organic solvent).
-        constraint_spec: Optional positional constraints for FEP-style analogue
+        constraint_spec: positional constraints for FEP-style analogue
             generation. When set, the specified atoms are pinned to their starting
             coordinates via MMFF position restraints, ETKDG seeding is skipped
             (the input conformer is used as the sole seed), global shake moves are
             suppressed, and only rotors whose moving fragment is entirely outside
             the constrained set are explored. Normally set via
-            ``generate_conformers_from_pose`` rather than directly.
+            `generate_conformers_from_pose` rather than directly.
         pool_max: Maximum pool size during generation. If None (default), computed
-            automatically as ``min(n_steps * 5, 2500)``.
+            automatically as `min(n_steps * 5, 2500)`.
         patience: Steps without any accepted conformer before stopping early.
             Set to 0 to disable. Default 150 typically terminates simple molecules
-            well before ``n_steps`` while leaving macrocycles unaffected.
-        auto_tune_large_flexible: If True, large non-macrocyclic flexible
+            well before `n_steps` while leaving macrocycles unaffected.
+        auto_tune_large_flexible: large non-macrocyclic flexible
             molecules may use faster runtime defaults for default-equivalent
             seeding and scheduling parameters. Explicit nondefault overrides are
             preserved.
-        collect_stats: If True, record stage timings and counters for benchmark
+        collect_stats: record stage timings and counters for benchmark
             analysis and attach them to the returned ensemble.
-        torsion_multitry_attempts: Number of pre-minimization torsion proposals
+        torsion_multitry_attempts: pre-minimization torsion proposal count
             to try for clash-filtered torsion moves. The candidate with the
             lowest clash score is kept, reducing wasted minimizations on crowded
             intermediates. Set to 1 to recover single-proposal behavior.
@@ -207,7 +207,7 @@ class ConformerConfig:
     random_seed: int | None = None
     num_threads: int = 0
     use_heavy_atoms_only: bool = True
-    constraint_spec: "ConstraintSpec | None" = None
+    constraint_spec: ConstraintSpec | None = None
     clash_threshold: float = 1.5
     fast_minimization_iters: int = 20
     max_minimization_iters: int = 200
@@ -280,40 +280,40 @@ class ConformerConfig:
             raise ValueError(f"pool_max must be >= max_out ({self.max_out}), got {self.pool_max}.")
 
 
-def preset_config(preset: ConformerPreset) -> "ConformerConfig":
+def preset_config(preset: ConformerPreset) -> ConformerConfig:
     """Return a ConformerConfig tuned for a common use case.
 
     Presets:
 
-    - ``"rapid"`` — FastROCS-style virtual screening. Generates 5 diverse
+    - `"rapid"` — FastROCS-style virtual screening. Generates 5 diverse
       conformers per molecule as fast as possible (~45 ms for drug-like
       molecules on a single core). Skips final MMFF refinement.
 
-    - ``"ensemble"`` — Balanced conformer ensemble for property prediction
+    - `"ensemble"` — Balanced conformer ensemble for property prediction
       (logP, pKa, ML descriptors). 50 conformers, full refinement.
 
-    - ``"spectroscopic"`` — Exhaustive Boltzmann ensemble for NMR/IR/VCD.
+    - `"spectroscopic"` — Exhaustive Boltzmann ensemble for NMR/IR/VCD.
       Tight 5 kcal energy window, energy-ranked output, dense seeding. Caller
-      should weight conformers by ``exp(-E/RT)``.
+      should weight conformers by `exp(-E/RT)`.
 
-    - ``"docking"`` — Maximize bioactive conformation recall for docking
+    - `"docking"` — Maximize bioactive conformation recall for docking
       workflows. Wide energy window, uniform parent sampling, no final
       refinement (docking programs minimize in-situ).
 
-    - ``"analogue"`` — FEP-style analogue / R-group enumeration. Intended for
-      use with ``generate_conformers_from_pose``, which supplies the
-      ``constraint_spec`` automatically. 50 conformers, full refinement,
+    - `"analogue"` — FEP-style analogue / R-group enumeration. Intended for
+      use with `generate_conformers_from_pose`, which supplies the
+      `constraint_spec` automatically. 50 conformers, full refinement,
       softmax parent strategy to stay near the constrained energy basin.
 
     Args:
-        preset: One of ``"rapid"``, ``"ensemble"``, ``"spectroscopic"``,
-            ``"docking"``, ``"analogue"``.
+        preset: one of `"rapid"`, `"ensemble"`, `"spectroscopic"`,
+            `"docking"`, `"analogue"`.
 
     Returns:
-        ConformerConfig configured for the requested use case.
+        Configuration for requested use case
 
     Raises:
-        ValueError: If preset is not recognized.
+        ValueError: preset is not recognized
 
     Examples:
         >>> config = preset_config("docking")

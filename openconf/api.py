@@ -2,6 +2,7 @@
 
 import dataclasses
 from dataclasses import dataclass, field
+from typing import Self
 
 import numpy as np
 from rdkit import Chem
@@ -33,16 +34,16 @@ def _filter_stereochemistry_consistent_conformers(
     """Filter final conformers that changed input-specified stereochemistry.
 
     Args:
-        mol: RDKit molecule containing final conformers.
-        conf_ids: Final conformer IDs.
-        energies: Energies aligned to conf_ids.
-        reference_stereo: Input-specified stereochemistry labels.
+        mol: molecule containing final conformers
+        conf_ids: final conformer IDs
+        energies: energies aligned to `conf_ids`
+        reference_stereo: input-specified stereochemistry labels
 
     Returns:
-        Filtered conformer IDs and energies.
+        Filtered conformer IDs and energies
 
     Raises:
-        ValueError: If all final conformers changed specified stereochemistry.
+        ValueError: all final conformers changed specified stereochemistry
     """
     if not reference_stereo.tetrahedral and not reference_stereo.bonds:
         return conf_ids, energies
@@ -71,10 +72,10 @@ class ConformerEnsemble:
     """Collection of conformers with metadata.
 
     Attributes:
-        mol: RDKit molecule containing all conformers.
-        records: List of ConformerRecord objects.
-        generation_stats: Optional benchmark timings and counters collected
-            during generation when ``ConformerConfig.collect_stats`` is enabled.
+        mol: molecule containing all conformers
+        records: conformer metadata records
+        generation_stats: benchmark timings and counters collected
+            during generation when `ConformerConfig.collect_stats` is enabled.
     """
 
     mol: Chem.Mol
@@ -83,27 +84,27 @@ class ConformerEnsemble:
 
     @property
     def conf_ids(self) -> list[int]:
-        """List of conformer IDs."""
+        """Conformer IDs in record order."""
         return [r.conf_id for r in self.records]
 
     @property
     def energies(self) -> list[float]:
-        """List of energies."""
+        """Energies in record order."""
         return [r.energy_kcal if r.energy_kcal is not None else float("inf") for r in self.records]
 
     @property
     def n_conformers(self) -> int:
-        """Number of conformers."""
+        """Conformer count."""
         return len(self.records)
 
     def coords(self, idx: int) -> list[tuple[float, float, float]]:
         """Get coordinates for a conformer by index.
 
         Args:
-            idx: Index into records list.
+            idx: position in `records`
 
         Returns:
-            List of (x, y, z) tuples.
+            Coordinates for each atom
         """
         conf = self.mol.GetConformer(self.records[idx].conf_id)
         return [(p.x, p.y, p.z) for p in (conf.GetAtomPosition(i) for i in range(self.mol.GetNumAtoms()))]
@@ -112,8 +113,8 @@ class ConformerEnsemble:
         """Write ensemble to SDF file.
 
         Args:
-            output_path: Output file path.
-            include_metadata: Include energy and source in SDF properties.
+            output_path: destination file path
+            include_metadata: include energy and source in SDF properties
         """
         from .io import write_sdf
 
@@ -133,7 +134,7 @@ class ConformerEnsemble:
         """Write ensemble to XYZ file.
 
         Args:
-            output_path: Output file path.
+            output_path: destination file path
         """
         from .io import write_xyz
 
@@ -147,18 +148,18 @@ class ConformerEnsemble:
     def boltzmann_weights(self, temperature: float = 298.15) -> np.ndarray:
         """Normalized Boltzmann weights from the ensemble energies.
 
-        Weights are ``exp(-(E - Emin) / RT)`` normalized to sum to 1. Conformers
+        Weights are `exp(-(E - Emin) / RT)` normalized to sum to 1. Conformers
         with missing energies are assigned weight 0.
 
         Args:
-            temperature: Temperature in Kelvin. Default 298.15 K (25 °C).
+            temperature: temperature in Kelvin; default 298.15 K (25 °C)
 
         Returns:
-            Array of shape ``(n_conformers,)`` summing to 1.
+            Normalized weights aligned with `records`
 
         Raises:
-            ValueError: If temperature is not positive.
-            ValueError: If the ensemble has no conformers with finite energies.
+            ValueError: temperature is not positive
+            ValueError: ensemble has no conformers with finite energies
         """
         if temperature <= 0.0:
             raise ValueError(f"temperature must be > 0, got {temperature}.")
@@ -186,12 +187,11 @@ class ConformerEnsemble:
         modified.
 
         Args:
-            ref_idx: Index into ``records`` of the reference conformer.
-            heavy_only: If True (default), compute RMSD using heavy atoms only.
+            ref_idx: position in `records` of reference conformer
+            heavy_only: use heavy atoms only
 
         Returns:
-            List of RMSDs in Å, one per record, in the order of ``records``.
-            The reference entry is 0.0.
+            RMSDs in Å aligned with `records`; reference entry is 0.0
         """
         from rdkit.Chem import rdMolAlign
 
@@ -232,11 +232,10 @@ class ConformerEnsemble:
         not modified.
 
         Args:
-            heavy_only: If True (default), use heavy atoms only.
+            heavy_only: use heavy atoms only
 
         Returns:
-            Array of shape ``(n_conformers, n_conformers)`` with zeros on the
-            diagonal. Symmetric by construction.
+            Symmetric RMSD matrix aligned with `records`
         """
         from rdkit.Chem import rdMolAlign
 
@@ -277,20 +276,20 @@ class ConformerEnsemble:
         )
 
     @classmethod
-    def from_sdf(cls, input_path: str) -> "ConformerEnsemble":
+    def from_sdf(cls, input_path: str) -> Self:
         """Read an ensemble from an SDF file, preserving metadata.
 
         Round-trip inverse of :meth:`to_sdf`. Recovers per-conformer
-        ``energy_kcal`` (from the ``Energy_kcal`` property), ``source`` (from
-        the ``source`` property), and any additional tags written by
-        :meth:`to_sdf`. The ``_Name`` and ``ConfID`` bookkeeping properties
+        `energy_kcal` (from the `Energy_kcal` property), `source` (from
+        the `source` property), and any additional tags written by
+        :meth:`to_sdf`. The `_Name` and `ConfID` bookkeeping properties
         produced by the writer are ignored.
 
         Args:
-            input_path: Path to an SDF file.
+            input_path: SDF file path
 
         Returns:
-            ConformerEnsemble with one record per conformer in the file.
+            Ensemble with one record per conformer in file
         """
         supplier = Chem.SDMolSupplier(str(input_path), removeHs=False)
 
@@ -351,24 +350,24 @@ def generate_conformers(
     minimizes with MMFF, and deduplicates with PRISM Pruner.
 
     Args:
-        mol: RDKit molecule or SMILES string.
-        method: Generation method ("hybrid" is the default and recommended).
-        config: Configuration options. If None, uses defaults.
-        preset: Named use-case preset. One of ``"rapid"``,
-            ``"ensemble"``, ``"spectroscopic"``, ``"docking"``. Mutually
+        mol: molecule or SMILES string
+        method: generation method; `"hybrid"` is the default and recommended
+        config: configuration options; defaults are used when omitted
+        preset: named use-case preset; one of `"rapid"`,
+            `"ensemble"`, `"spectroscopic"`, `"docking"`. Mutually
             exclusive with *config*; raises ValueError if both are supplied.
-        torsion_library: Optional torsion library override. If omitted, uses
+        torsion_library: torsion library override; when omitted, uses
             the bundled cached CrystalFF-derived library.
-        add_hs: Whether to add explicit hydrogens before embedding. Set to
-            ``False`` when *mol* already has all hydrogens present (e.g. a
+        add_hs: add explicit hydrogens before embedding; set to
+            `False` when *mol* already has all hydrogens present (e.g. a
             3D structure read from SDF, or a radical with explicit H atoms)
             to prevent RDKit from inserting additional implicit H atoms.
 
     Returns:
-        Generated conformers with metadata.
+        Generated conformers with metadata
 
     Raises:
-        ValueError: If mol is invalid, method is unknown, or both *config*
+        ValueError: mol is invalid, method is unknown, or both *config*
             and *preset* are supplied.
 
     Examples:
@@ -439,27 +438,27 @@ def generate_conformers_from_pose(
 
     **Atom index convention:** pass indices as they appear in *mol*. If *mol*
     already has explicit hydrogens the indices are used as-is. If *mol* has only
-    heavy atoms, ``Chem.AddHs`` is called internally — it appends new H atoms at
+    heavy atoms, `Chem.AddHs` is called internally — it appends new H atoms at
     the end and leaves all existing indices unchanged, so heavy-atom indices
     remain valid after H addition.
 
     Args:
-        mol: RDKit molecule with at least one conformer (the MCS-aligned pose).
-            If multiple conformers are present, the first is used as the seed.
-        constrained_atoms: Atom indices of the core scaffold that must not move.
+        mol: molecule with at least one conformer; when multiple conformers
+            are present, first conformer is used as seed.
+        constrained_atoms: atom indices of the core scaffold that must not move.
             These are indices into *mol* as supplied (see note above).
-        config: Configuration options. Defaults to the ``"analogue"`` preset.
-        preset: Named preset. Defaults to ``"analogue"`` when neither *config*
+        config: configuration options; defaults to the `"analogue"` preset.
+        preset: named preset; defaults to `"analogue"` when neither *config*
             nor *preset* is given. Mutually exclusive with *config*.
-        torsion_library: Optional torsion library override. If omitted, uses
+        torsion_library: torsion library override; when omitted, uses
             the bundled cached CrystalFF-derived library.
 
     Returns:
-        ConformerEnsemble with terminal-group conformational diversity while
+        Ensemble with terminal-group conformational diversity while
         preserving the input core geometry.
 
     Raises:
-        ValueError: If mol has no conformers, if both *config* and *preset* are
+        ValueError: mol has no conformers, both *config* and *preset* are
             supplied, or if the method is unknown.
 
     Examples:

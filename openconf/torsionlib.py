@@ -1,15 +1,11 @@
-"""Torsion library for biased conformer generation.
-
-Provides SMARTS-based torsion angle preferences derived from the RDKit CrystalFF
-torsion library (J. Chem. Inf. Model. 56, 1, 2016). Fourier series coefficients
-were converted to preferred angles by numerical minimization.
-"""
+"""SMARTS-based torsion angle preferences for biased conformer generation."""
 
 import json
 from dataclasses import dataclass, field
 from functools import cache
 from importlib.resources import files
 from pathlib import Path
+from typing import Self
 
 from rdkit import Chem
 
@@ -19,10 +15,10 @@ class TorsionRule:
     """Torsion angle rule defined by SMARTS pattern.
 
     Attributes:
-        smarts: SMARTS pattern for matching the dihedral (atoms :1,:2,:3,:4).
-        angles_deg: Preferred torsion angles in degrees.
-        weights: Sampling weights for each angle (need not sum to 1).
-        name: Human-readable name for the rule.
+        smarts: SMARTS pattern for matching the dihedral (atoms :1,:2,:3,:4)
+        angles_deg: preferred torsion angles in degrees
+        weights: sampling weights for each angle; need not sum to 1
+        name: human-readable name for the rule
     """
 
     smarts: str
@@ -43,7 +39,7 @@ def _load_default_rules() -> list[TorsionRule]:
     """Load the bundled torsion library JSON.
 
     Returns:
-        List of TorsionRule objects from the default CrystalFF library.
+        Rules from the default CrystalFF library
     """
     data_path = files("openconf.data").joinpath("torsion_library.json")
     with data_path.open() as f:
@@ -74,7 +70,7 @@ class TorsionLibrary:
         """Initialize the torsion library.
 
         Args:
-            rules: Rules to use. If None, loads the bundled CrystalFF library.
+            rules: rules to use; bundled CrystalFF library is loaded when omitted
         """
         self.rules = rules if rules is not None else _load_default_rules()
         self._compiled: list[tuple[Chem.Mol, TorsionRule, int, int]] = []
@@ -111,11 +107,11 @@ class TorsionLibrary:
         """Return the first matching rule for this dihedral, or None.
 
         The CrystalFF patterns define 4-atom contexts that may not agree with
-        the specific terminal atoms we chose in ``_get_dihedral_atoms`` (e.g.,
+        the specific terminal atoms we chose in `_get_dihedral_atoms` (e.g.,
         amide patterns always include the carbonyl O as atom :1, but our
         dihedral might use a different neighbor).  We therefore match on the
-        central bond only: atoms :2 and :3 in the SMARTS (``match[1]`` and
-        ``match[2]``) must equal the rotatable bond atoms, in either direction.
+        central bond only: atoms :2 and :3 in the SMARTS (`match[1]` and
+        `match[2]`) must equal the rotatable bond atoms, in either direction.
         """
         central = (dihedral_atoms[1], dihedral_atoms[2])
         central_rev = (dihedral_atoms[2], dihedral_atoms[1])
@@ -135,11 +131,11 @@ class TorsionLibrary:
         """Get preferred torsion angles for a dihedral.
 
         Args:
-            mol: RDKit molecule.
-            dihedral_atoms: Four atom indices (a, b, c, d) defining the dihedral.
+            mol: molecule to match
+            dihedral_atoms: atom indices defining the dihedral
 
         Returns:
-            (angles_deg, weights). Falls back to generic staggered angles
+            Preferred angles and weights; falls back to generic staggered angles
             (60°/180°/300°) when no rule matches.
         """
         rule = self._match_dihedral(mol, dihedral_atoms)
@@ -156,26 +152,26 @@ class TorsionLibrary:
         """Return the matching TorsionRule for a rotor, or None.
 
         Args:
-            mol: RDKit molecule.
-            dihedral_atoms: Four atom indices defining the dihedral.
+            mol: molecule to match
+            dihedral_atoms: atom indices defining the dihedral
 
         Returns:
-            Matching TorsionRule, or None if no rule matches.
+            Matching rule, or None if no rule matches
         """
         return self._match_dihedral(mol, dihedral_atoms)
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "TorsionLibrary":
+    def from_json(cls, path: str | Path) -> Self:
         """Load a torsion library from a JSON file.
 
         Args:
-            path: Path to a JSON file with a ``rules`` list, each entry having
-                ``smarts``, ``angles_deg``, and optionally ``weights`` / ``name``.
+            path: JSON file path with a `rules` list, each entry having
+                `smarts`, `angles_deg`, and optionally `weights` / `name`.
 
         Returns:
-            TorsionLibrary loaded from the file.
+            Torsion library loaded from file
         """
-        with open(path) as f:
+        with Path(path).open() as f:
             data = json.load(f)
         rules = [
             TorsionRule(
@@ -192,7 +188,7 @@ class TorsionLibrary:
         """Save this library to a JSON file.
 
         Args:
-            path: Output path.
+            path: destination path
         """
         data = {
             "rules": [
@@ -205,7 +201,7 @@ class TorsionLibrary:
                 for r in self.rules
             ]
         }
-        with open(path, "w") as f:
+        with Path(path).open("w") as f:
             json.dump(data, f, indent=2)
 
     def __len__(self) -> int:

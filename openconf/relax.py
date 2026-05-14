@@ -18,11 +18,11 @@ def _metal_ligand_reference_distances(
     """Measure reference metal-ligand distances from first conformer.
 
     Args:
-        mol: RDKit molecule with reference conformer.
-        metal_atom_indices: Atom indices of metal centers.
+        mol: molecule with reference conformer
+        metal_atom_indices: metal-center atom indices
 
     Returns:
-        Mapping from metal-neighbor atom index pair to distance in Angstrom.
+        Reference distances keyed by metal-neighbor atom index pairs
     """
     if not metal_atom_indices or mol.GetNumConformers() == 0:
         return {}
@@ -34,10 +34,7 @@ def _metal_ligand_reference_distances(
         for nb in mol.GetAtomWithIdx(int(m_idx)).GetNeighbors():
             nb_idx = int(nb.GetIdx())
             nb_pos = conf.GetAtomPosition(nb_idx)
-            dx = metal_pos.x - nb_pos.x
-            dy = metal_pos.y - nb_pos.y
-            dz = metal_pos.z - nb_pos.z
-            distance = float((dx * dx + dy * dy + dz * dz) ** 0.5)
+            distance = float(metal_pos.Distance(nb_pos))
             if distance > 0.0:
                 distances[(int(m_idx), nb_idx)] = distance
     return distances
@@ -52,11 +49,11 @@ class Minimizer(Protocol):
         """Minimize a conformer in place.
 
         Args:
-            mol: RDKit molecule containing the conformer.
-            conf_id: Conformer ID to minimize.
+            mol: molecule containing conformer
+            conf_id: conformer ID to minimize
 
         Returns:
-            Energy in kcal/mol after minimization.
+            Energy in kcal/mol after minimization
         """
         ...
 
@@ -66,20 +63,20 @@ class RDKitMMFFMinimizer:
     """RDKit MMFF94 force field minimizer.
 
     Attributes:
-        max_iters: Maximum iterations for minimization.
-        force_tol: Force convergence tolerance.
-        energy_tol: Energy convergence tolerance.
-        variant: MMFF variant ("MMFF94" or "MMFF94s").
-        dielectric: Dielectric constant for electrostatics. Gas phase is 1.0;
+        max_iters: maximum iterations for minimization
+        force_tol: force convergence tolerance
+        energy_tol: energy convergence tolerance
+        variant: MMFF variant; `"MMFF94"` or `"MMFF94s"`
+        dielectric: dielectric constant for electrostatics. Gas phase is 1.0;
             higher values (4-10) reduce over-strong intramolecular electrostatics
             and are more appropriate for condensed-phase conformer generation.
-        metal_atom_indices: Atom indices of metal centers. When MMFF is
+        metal_atom_indices: metal-center atom indices. When MMFF is
             unavailable these are pinned via UFFAddPositionConstraint so that
             untyped metals (lanthanides, actinides, …) do not drift freely
             during UFF minimization.
-        _metal_ref_positions: Reference coordinates for metal centers when
+        _metal_ref_positions: reference coordinates for metal centers when
             input molecule already has coordinates.
-        _metal_ligand_ref_distances: Reference distances from metal centers to
+        _metal_ligand_ref_distances: reference distances from metal centers to
             directly connected ligating atoms when input molecule has coordinates.
     """
 
@@ -99,7 +96,7 @@ class RDKitMMFFMinimizer:
         Call once per molecule before minimizing.
 
         Args:
-            mol: RDKit molecule to prepare.
+            mol: molecule to prepare
         """
         self._mmff_props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant=self.variant)
         if self._mmff_props is not None:
@@ -130,8 +127,8 @@ class RDKitMMFFMinimizer:
         """Snap metal centers back to reference coordinates when available.
 
         Args:
-            mol: RDKit molecule containing conformer.
-            conf_id: Conformer ID to update.
+            mol: molecule containing conformer
+            conf_id: conformer ID to update
         """
         if not self._metal_ref_positions:
             return
@@ -143,11 +140,11 @@ class RDKitMMFFMinimizer:
         """Minimize conformer in place and return energy in kcal/mol.
 
         Args:
-            mol: RDKit molecule containing the conformer.
-            conf_id: Conformer ID to minimize.
+            mol: molecule containing conformer
+            conf_id: conformer ID to minimize
 
         Returns:
-            Energy in kcal/mol after minimization.
+            Energy in kcal/mol after minimization
         """
         try:
             if self._mmff_props is not None:
@@ -186,15 +183,15 @@ def minimize_confs_mmff(
     minimization passes during MCMM sampling this is an acceptable approximation.
 
     Args:
-        mol: RDKit molecule containing the conformers.
-        mmff_props: Pre-prepared MMFFMoleculeProperties with dielectric already set.
-        conf_ids: Conformer IDs to minimize.
-        max_iters: Maximum minimization iterations.
-        num_threads: C++ threads for MMFFOptimizeMoleculeConfs. 0 = all available.
-        variant: MMFF variant string passed to MMFFOptimizeMoleculeConfs.
+        mol: molecule containing conformers
+        mmff_props: pre-prepared MMFFMoleculeProperties with dielectric already set
+        conf_ids: conformer IDs to minimize
+        max_iters: maximum minimization iterations
+        num_threads: C++ threads for MMFFOptimizeMoleculeConfs; 0 means all available
+        variant: MMFF variant string passed to MMFFOptimizeMoleculeConfs
 
     Returns:
-        Energies in kcal/mol, aligned to conf_ids.
+        Energies in kcal/mol aligned to `conf_ids`
     """
     if not conf_ids:
         return []
@@ -215,15 +212,15 @@ def get_minimizer(name: str = "rdkit_mmff", metal_atom_indices: frozenset[int] =
     """Get a minimizer by name.
 
     Args:
-        name: Minimizer name. Only ``"rdkit_mmff"`` is currently supported.
-        metal_atom_indices: Indices of metal atoms to exclude from MMFF typing.
-        **kwargs: Additional arguments for the minimizer.
+        name: minimizer name; only `"rdkit_mmff"` is currently supported
+        metal_atom_indices: metal atoms to exclude from MMFF typing
+        **kwargs: additional arguments for minimizer
 
     Returns:
-        Minimizer instance.
+        Minimizer instance
 
     Raises:
-        ValueError: If unknown minimizer name.
+        ValueError: unknown minimizer name
     """
     if name == "rdkit_mmff":
         return RDKitMMFFMinimizer(metal_atom_indices=metal_atom_indices, **kwargs)

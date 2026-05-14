@@ -1,7 +1,4 @@
-"""PRISM Pruner adapter for conformer deduplication.
-
-Provides a clean interface to PRISM Pruner for removing duplicate conformers.
-"""
+"""PRISM Pruner adapter for RMSD-based conformer deduplication."""
 
 import numpy as np
 from prism_pruner.pruner import prune_by_moment_of_inertia
@@ -16,12 +13,12 @@ def _mol_to_arrays(
     """Convert RDKit conformers to numpy arrays for PRISM.
 
     Args:
-        mol: RDKit molecule with conformers.
-        conf_ids: List of conformer IDs to extract.
-        use_heavy_atoms_only: If True, only use heavy atoms.
+        mol: molecule with conformers
+        conf_ids: conformer IDs to extract
+        use_heavy_atoms_only: use heavy atoms only
 
     Returns:
-        Tuple of (coords array [n_confs, n_atoms, 3], atom symbols array).
+        Coordinates and atom symbols for PRISM
     """
     # Get atom indices to use
     if use_heavy_atoms_only:
@@ -54,16 +51,16 @@ def prism_dedupe(
     """Deduplicate conformers using PRISM Pruner.
 
     Args:
-        mol: RDKit molecule with conformers.
-        conf_ids: List of conformer IDs to process.
-        use_heavy_atoms_only: Use only heavy atoms for comparison.
+        mol: molecule with conformers
+        conf_ids: conformer IDs to process
+        use_heavy_atoms_only: use only heavy atoms for comparison
 
     Returns:
-        List of conformer IDs to keep.
+        Identifiers to keep
     """
     if len(conf_ids) <= 1:
         return conf_ids
 
     coords, atoms = _mol_to_arrays(mol, conf_ids, use_heavy_atoms_only)
     _, mask = prune_by_moment_of_inertia(coords, atoms)
-    return [conf_ids[i] for i in range(len(conf_ids)) if mask[i]]
+    return [conf_id for conf_id, keep in zip(conf_ids, mask, strict=True) if keep]

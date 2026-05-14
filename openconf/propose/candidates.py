@@ -1,8 +1,7 @@
 """Candidate staging and clash-check helpers for proposal workflows."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
+from typing import Self
 
 import numpy as np
 from rdkit import Chem
@@ -69,7 +68,7 @@ class ClashChecker:
         return float(overlap.sum() / self.clash_threshold2)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StagedCandidate:
     """Candidate conformer staged for batch minimization."""
 
@@ -78,7 +77,7 @@ class StagedCandidate:
     move_type: str
 
 
-@dataclass
+@dataclass(slots=True)
 class CandidateBatchWorkspace:
     """Batch workspace for staging, minimizing, and committing candidates."""
 
@@ -92,7 +91,7 @@ class CandidateBatchWorkspace:
         main_mol: Chem.Mol,
         staging_mol: Chem.RWMol,
         candidates: list[tuple[int, str]],
-    ) -> "CandidateBatchWorkspace":
+    ) -> Self:
         """Stage candidate conformers on the minimization workspace."""
         staged: list[StagedCandidate] = []
         for main_conf_id, move_type in candidates:

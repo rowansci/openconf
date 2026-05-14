@@ -1,15 +1,4 @@
-"""Supplementary seeds from in-ring tertiary amide cis/trans enumeration.
-
-Tertiary amides (N-substituted, no N-H) in macrocyclic rings have a significant
-rotational barrier on the N-C(=O) bond, giving distinct cis and trans
-conformational families. For cyclic peptoids and similar molecules this creates
-2^k families (k = number of such bonds) that ETKDG does not systematically cover.
-
-This module identifies those bonds and uses MMFF torsion constraints to derive
-one seed conformer for each flip combination, up to 2^_MAX_FLIP_BONDS variants.
-"""
-
-from __future__ import annotations
+"""Supplementary seeds from in-ring tertiary amide cis/trans enumeration."""
 
 import itertools
 import math
@@ -108,13 +97,13 @@ def generate_amide_variant_seeds(
     with finite MMFF energy as (conf_id, energy_kcal) pairs.
 
     Args:
-        mol: Working molecule; new conformers are added in-place.
-        mmff_props: MMFFMolProperties from the fast minimizer (molecule-specific).
-        base_conf_id: ID of the lowest-energy ETKDG seed to use as starting geometry.
-        amide_dihedrals: Output of find_ring_tertiary_amide_dihedrals.
+        mol: working molecule; new conformers are added in place
+        mmff_props: MMFFMolProperties from fast minimizer for molecule
+        base_conf_id: lowest-energy ETKDG seed ID to use as starting geometry
+        amide_dihedrals: output of `find_ring_tertiary_amide_dihedrals`
 
     Returns:
-        List of (conf_id, energy_kcal) for successfully relaxed variants.
+        Identifiers and energies for successfully relaxed variants
     """
     k = min(len(amide_dihedrals), _MAX_FLIP_BONDS)
     dihedrals = amide_dihedrals[:k]

@@ -1,16 +1,4 @@
-"""openconf - Modular conformer generation for docking and ensemble workflows.
-
-A unified, modular conformer engine optimized for docking recall and
-diverse ensemble workflows, using RDKit for heavy lifting
-and PRISM Pruner for fast, robust deduplication.
-
-Examples:
---------
-    >>> from openconf import generate_conformers, ConformerConfig
-    >>> from rdkit import Chem
-    >>> mol = Chem.MolFromSmiles("CCCCc1ccccc1")
-    >>> ensemble = generate_conformers(mol)  # doctest: +SKIP
-"""
+"""Public package interface for openconf conformer generation."""
 
 from .api import (
     ConformerEnsemble,
