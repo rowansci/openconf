@@ -34,11 +34,14 @@ class RingFlip:
         ring_size: Number of atoms in the ring.
         junction_atoms: Atoms shared with other rings (ring-fusion bonds).
             These define the reflection plane but do not move during the flip.
+        stereo_sensitive: Whether simple plane reflection would touch specified
+            tetrahedral stereochemistry and must use stereo-preserving moves.
     """
 
     ring_atoms: tuple[int, ...]
     ring_size: int
     junction_atoms: frozenset[int] = field(default_factory=frozenset)
+    stereo_sensitive: bool = False
 
 
 @dataclass
@@ -314,8 +317,8 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
     Fused rings are supported: junction atoms (shared with another ring) define
     the reflection plane but do not move.  A ring is eligible when it has at
     least one non-junction atom so there is something to reflect. Rings whose
-    reflection would touch specified tetrahedral stereochemistry are excluded
-    because plane reflection is an improper transform.
+    reflection would touch specified tetrahedral stereochemistry are marked for
+    stereo-preserving moves because plane reflection is an improper transform.
 
     Args:
         mol: RDKit molecule.
@@ -352,10 +355,15 @@ def _find_ring_flips(mol: Chem.Mol, atom_rings: list[tuple[int, ...]]) -> list[R
         if size - len(ring_junction) < 1:
             continue
 
-        if _ring_flip_touches_specified_tetrahedral_stereo(mol, tuple(ring), ring_junction):
-            continue
-
-        flips.append(RingFlip(ring_atoms=tuple(ring), ring_size=size, junction_atoms=ring_junction))
+        stereo_sensitive = _ring_flip_touches_specified_tetrahedral_stereo(mol, tuple(ring), ring_junction)
+        flips.append(
+            RingFlip(
+                ring_atoms=tuple(ring),
+                ring_size=size,
+                junction_atoms=ring_junction,
+                stereo_sensitive=stereo_sensitive,
+            )
+        )
     return flips
 
 

@@ -739,24 +739,26 @@ def test_ring_flips_mixed():
     assert len(rm.ring_flips[0].junction_atoms) == 2
 
 
-def test_ring_flips_exclude_specified_ring_stereocenters():
-    """Ring reflection must not be scheduled across specified ring stereocenters."""
+def test_ring_flips_mark_specified_ring_stereocenters_stereo_sensitive():
+    """Ring flips touching specified ring stereocenters use stereo-preserving moves."""
     from openconf.perceive import build_rotor_model, prepare_molecule
 
     mol = prepare_molecule(Chem.MolFromSmiles("C[C@H]1CCCC[C@H]1F"))
     rm = build_rotor_model(mol)
 
-    assert len(rm.ring_flips) == 0
+    assert len(rm.ring_flips) == 1
+    assert rm.ring_flips[0].stereo_sensitive is True
 
 
-def test_ring_flips_exclude_specified_chiral_subtrees():
-    """Ring reflection must not move chiral substituent subtrees."""
+def test_ring_flips_mark_specified_chiral_subtrees_stereo_sensitive():
+    """Ring flips touching specified chiral substituents use stereo-preserving moves."""
     from openconf.perceive import build_rotor_model, prepare_molecule
 
     mol = prepare_molecule(Chem.MolFromSmiles("F[C@H](Cl)C1CCCCC1"))
     rm = build_rotor_model(mol)
 
-    assert len(rm.ring_flips) == 0
+    assert len(rm.ring_flips) == 1
+    assert rm.ring_flips[0].stereo_sensitive is True
 
 
 def test_ring_info_macrocycle():
@@ -919,6 +921,41 @@ def test_ring_flip_moves_attached_subtrees():
     after = np.array(mol.GetConformer(new_id).GetAtomPosition(methyl_idx))
 
     assert not np.allclose(before, after, atol=0.01), "Ring flip did not move attached substituent"
+
+
+def test_stereo_sensitive_ring_flip_preserves_chiral_labels():
+    """Stereo-sensitive ring move should change coordinates without changing specified chirality."""
+    import numpy as np
+    from rdkit.Chem import AllChem
+
+    from openconf.config import ConformerConfig
+    from openconf.perceive import build_rotor_model, conformer_matches_specified_stereochemistry, prepare_molecule
+    from openconf.propose.hybrid import HybridProposer, _copy_conformer
+    from openconf.torsionlib import TorsionLibrary
+
+    smiles = "[C@@H]1(C2C=CC=CC=2)CC[C@@H]([C@@H](C(=O)N)Cl)CC1"
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    params = AllChem.ETKDGv3()
+    params.randomSeed = 42
+    AllChem.EmbedMolecule(mol, params)
+    AllChem.MMFFOptimizeMolecule(mol)
+    mol = prepare_molecule(mol)
+
+    rm = build_rotor_model(mol)
+    assert len(rm.ring_flips) == 1
+    assert rm.ring_flips[0].stereo_sensitive is True
+
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=1))
+    orig_id = mol.GetConformers()[0].GetId()
+    new_id = _copy_conformer(mol, orig_id)
+
+    before = mol.GetConformer(orig_id).GetPositions().copy()
+    proposer._moves.apply_ring_flip_move(new_id)
+    after = mol.GetConformer(new_id).GetPositions()
+
+    ring_idx = list(rm.ring_flips[0].ring_atoms)
+    assert not np.allclose(before[ring_idx], after[ring_idx], atol=0.01)
+    assert conformer_matches_specified_stereochemistry(mol, new_id, proposer._moves.reference_stereo)
 
 
 def test_fused_ring_flips_decalin():

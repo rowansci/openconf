@@ -9,7 +9,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 from rdkit.Chem import rdMolTransforms
 
-from ..perceive import RotorModel, _is_metal, _ring_flip_moving_atoms
+from ..perceive import (
+    RotorModel,
+    _is_metal,
+    _ring_flip_moving_atoms,
+    conformer_matches_specified_stereochemistry,
+    specified_stereochemistry,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -66,6 +72,7 @@ class MoveExecutor:
         self.mol = mol
         self.rotor_model = rotor_model
         self.config = config
+        self.reference_stereo = specified_stereochemistry(mol)
 
         metal_angles = np.linspace(0.0, 360.0, 12, endpoint=False)
         metal_weights = np.full(12, 1.0 / 12.0)
@@ -87,6 +94,13 @@ class MoveExecutor:
         ]
         self.ring_flip_moving_atoms = [
             tuple(sorted(_ring_flip_moving_atoms(mol, ring_flip.ring_atoms, ring_flip.junction_atoms)))
+            for ring_flip in rotor_model.ring_flips
+        ]
+        self.ring_flip_subtrees = [
+            [
+                self._compute_substituent_atoms(mol, frozenset(ring_flip.ring_atoms), ring_atom)
+                for ring_atom in ring_flip.ring_atoms
+            ]
             for ring_flip in rotor_model.ring_flips
         ]
         self.operators: dict[str, Callable[[int], None]] = {
@@ -245,15 +259,20 @@ class MoveExecutor:
         conf.SetPositions(all_pos)
 
     def apply_ring_flip_move(self, conf_id: int) -> None:
-        """Reflect a non-aromatic ring through its mean plane."""
+        """Apply ring flip or stereo-preserving ring pucker move."""
         if not self.rotor_model.ring_flips:
             return
 
         ring_flip_idx = random.randrange(len(self.rotor_model.ring_flips))
         ring_flip = self.rotor_model.ring_flips[ring_flip_idx]
+        if ring_flip.stereo_sensitive:
+            self._apply_stereo_preserving_ring_flip_move(conf_id, ring_flip_idx)
+            return
+
         ring_atoms = ring_flip.ring_atoms
         moving_atoms = self.ring_flip_moving_atoms[ring_flip_idx]
         conf = self.mol.GetConformer(conf_id)
+        original_pos = conf.GetPositions()
         all_pos = conf.GetPositions()
         ring_idx = list(ring_atoms)
         ring_pos = all_pos[ring_idx]
@@ -267,6 +286,65 @@ class MoveExecutor:
         reflected = moving_pos - 2.0 * signed_dists[:, None] * normal
         all_pos[moving_idx] = reflected
         conf.SetPositions(all_pos)
+        if not conformer_matches_specified_stereochemistry(self.mol, conf_id, self.reference_stereo):
+            conf.SetPositions(original_pos)
+
+    def _apply_stereo_preserving_ring_flip_move(self, conf_id: int, ring_flip_idx: int) -> None:
+        """Apply proper rotational ring-pucker moves and keep only stereo-valid results."""
+        ring_flip = self.rotor_model.ring_flips[ring_flip_idx]
+        ring_atoms = ring_flip.ring_atoms
+        n = len(ring_atoms)
+        subtrees = self.ring_flip_subtrees[ring_flip_idx]
+        allowed_arcs: list[tuple[int, int, int, list[int]]] = []
+
+        for p in range(n):
+            for arc_len in range(1, n - 2):
+                q = (p + arc_len + 1) % n
+                interior = [(p + 1 + k) % n for k in range(arc_len)]
+                if any(ring_atoms[pos] in ring_flip.junction_atoms for pos in interior):
+                    continue
+                allowed_arcs.append((p, q, arc_len, interior))
+
+        if not allowed_arcs:
+            return
+
+        conf = self.mol.GetConformer(conf_id)
+        original_pos = conf.GetPositions()
+        for _ in range(10):
+            all_pos = original_pos.copy()
+            p, q, _arc_len, interior = random.choice(allowed_arcs)
+            anchor_p_idx = ring_atoms[p]
+            anchor_q_idx = ring_atoms[q]
+            axis_origin = all_pos[anchor_p_idx]
+            axis_vec = all_pos[anchor_q_idx] - axis_origin
+            axis_norm = float(np.linalg.norm(axis_vec))
+            if axis_norm < 1e-6:
+                continue
+            axis_unit = axis_vec / axis_norm
+
+            moving: set[int] = set()
+            for pos_in_ring in interior:
+                moving |= subtrees[pos_in_ring]
+            if not moving:
+                continue
+
+            moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
+            base = random.uniform(60.0, 180.0) * random.choice([-1.0, 1.0])
+            theta = np.deg2rad(base + np.random.normal(0.0, self.config.torsion_jitter_deg))
+            _rodrigues_rotate(
+                all_pos,
+                moving_arr,
+                axis_origin,
+                float(axis_unit[0]),
+                float(axis_unit[1]),
+                float(axis_unit[2]),
+                theta,
+            )
+            conf.SetPositions(all_pos)
+            if conformer_matches_specified_stereochemistry(self.mol, conf_id, self.reference_stereo):
+                return
+
+        conf.SetPositions(original_pos)
 
     def apply_ring_kic_move(self, conf_id: int) -> None:
         """CCD kinematic ring closure move for macrocycle sampling.
