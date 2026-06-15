@@ -42,14 +42,16 @@ def find_ring_amide_bonds(
         ring_atom_indices is the ordered atom ring containing the bond
     """
     ring_info = mol.GetRingInfo()
-    rings = sorted((r for r in ring_info.AtomRings() if len(r) >= min_ring_size), key=len, reverse=True)
+    # Pre-build (ring_set, ring_atoms) pairs in a list comprehension so ty can
+    # resolve the element type from AtomRings() without going through sorted().
+    eligible = [(set(r), tuple(r)) for r in ring_info.AtomRings() if len(r) >= min_ring_size]
+    rings = sorted(eligible, key=lambda x: len(x[1]), reverse=True)
 
     results: list[tuple[int, int, tuple[int, ...]]] = []
     seen: set[tuple[int, int]] = set()
 
-    for ring in rings:
-        ring_set = set(ring)
-        for n_idx in ring:
+    for ring_set, ring_atoms in rings:
+        for n_idx in ring_set:
             n_atom = mol.GetAtomWithIdx(n_idx)
             if n_atom.GetAtomicNum() != 7 or n_atom.GetIsAromatic():
                 continue
@@ -75,7 +77,7 @@ def find_ring_amide_bonds(
                     continue
 
                 seen.add(bond_key)
-                results.append((c_idx, n_idx, tuple(ring)))
+                results.append((c_idx, n_idx, ring_atoms))
 
     return results
 
