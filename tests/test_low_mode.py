@@ -140,8 +140,13 @@ def test_scan_along_mode_moves_from_start():
     start_pos = mol.GetConformer(0).GetPositions().copy()
 
     final_pos = _scan_along_mode(
-        mol, props, 0, direction, _DEFAULT_SCAN_STEP_SIZE,
-        _DEFAULT_SCAN_ENERGY_THRESHOLD, _DEFAULT_SCAN_MAX_STEPS,
+        mol,
+        props,
+        0,
+        direction,
+        _DEFAULT_SCAN_STEP_SIZE,
+        _DEFAULT_SCAN_ENERGY_THRESHOLD,
+        _DEFAULT_SCAN_MAX_STEPS,
     )
     assert not np.allclose(final_pos, start_pos), "Scan returned starting positions"
 
@@ -160,8 +165,13 @@ def test_scan_along_mode_restores_start_conformer():
     n_confs_before = mol.GetNumConformers()
 
     _scan_along_mode(
-        mol, props, 0, direction, _DEFAULT_SCAN_STEP_SIZE,
-        _DEFAULT_SCAN_ENERGY_THRESHOLD, _DEFAULT_SCAN_MAX_STEPS,
+        mol,
+        props,
+        0,
+        direction,
+        _DEFAULT_SCAN_STEP_SIZE,
+        _DEFAULT_SCAN_ENERGY_THRESHOLD,
+        _DEFAULT_SCAN_MAX_STEPS,
     )
 
     assert mol.GetNumConformers() == n_confs_before, "Scan left a temporary conformer behind"
@@ -183,8 +193,13 @@ def test_scan_stops_at_energy_threshold():
     # Threshold of 0 means any energy increase (even numerical noise) stops the scan.
     # The returned positions should still be the start positions (first step rejected).
     final_pos = _scan_along_mode(
-        mol, props, 0, direction, _DEFAULT_SCAN_STEP_SIZE,
-        energy_threshold=0.0, max_steps=10,
+        mol,
+        props,
+        0,
+        direction,
+        _DEFAULT_SCAN_STEP_SIZE,
+        energy_threshold=0.0,
+        max_steps=10,
     )
     # Either no progress or exactly one step taken — at most a tiny displacement
     displacement = float(np.linalg.norm(final_pos - start_pos))
@@ -233,9 +248,7 @@ def test_generate_low_mode_seeds_empty_when_threshold_zero(
     """No seeds generated when eigenvalue threshold excludes all conformational modes."""
     mol, props = propane_mol_props
     minimizer = _make_fast_minimizer(mol)
-    seeds = generate_low_mode_seeds(
-        mol, props, conf_id=0, minimizer=minimizer, eigenvalue_threshold=0.0
-    )
+    seeds = generate_low_mode_seeds(mol, props, conf_id=0, minimizer=minimizer, eigenvalue_threshold=0.0)
     assert seeds == []
 
 
@@ -247,9 +260,7 @@ def test_generate_low_mode_seeds_at_most_two_per_mode(
     minimizer = _make_fast_minimizer(mol)
     for cap in [1, 2]:
         n_before = mol.GetNumConformers()
-        seeds = generate_low_mode_seeds(
-            mol, props, conf_id=0, minimizer=minimizer, max_modes=cap
-        )
+        seeds = generate_low_mode_seeds(mol, props, conf_id=0, minimizer=minimizer, max_modes=cap)
         assert len(seeds) <= 2 * cap, f"Got {len(seeds)} seeds with cap={cap}"
         for conf_id, _ in seeds:
             mol.RemoveConformer(conf_id)
@@ -261,9 +272,7 @@ def test_generate_low_mode_seeds_scans_both_directions() -> None:
     mol, props = _make_minimized_mol("CCCCCC")
     minimizer = _make_fast_minimizer(mol)
 
-    seeds = generate_low_mode_seeds(
-        mol, props, conf_id=0, minimizer=minimizer, max_modes=1
-    )
+    seeds = generate_low_mode_seeds(mol, props, conf_id=0, minimizer=minimizer, max_modes=1)
     # For one mode with two directions we expect 0 or 2 seeds (not 1),
     # because both directions are always attempted.
     assert len(seeds) in (0, 2), f"Expected 0 or 2 seeds for 1 mode, got {len(seeds)}"
@@ -452,5 +461,3 @@ def test_macrocycle_preset_generates_conformers():
     )
     ens = generate_conformers("C1CCCCCCCCCCC1", config=config)
     assert ens.n_conformers > 0
-
-

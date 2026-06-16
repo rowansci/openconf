@@ -120,13 +120,13 @@ def _build_vibrational_basis(mol: Chem.Mol, conf_id: int) -> np.ndarray:
         trans[axis, axis::3] = 1.0
     trans /= np.linalg.norm(trans, axis=1, keepdims=True)
 
-    # Rotation: (r × e_axis) per atom, flattened into a 3N vector
+    # Rotation: (r cross e_axis) per atom, flattened into a 3N vector
     rot = np.zeros((3, n_dof))
     for k in range(n_atoms):
         rx, ry, rz = r[k]
-        rot[0, 3 * k : 3 * k + 3] = [0.0,   rz, -ry]  # r × e_x
-        rot[1, 3 * k : 3 * k + 3] = [-rz, 0.0,   rx]  # r × e_y
-        rot[2, 3 * k : 3 * k + 3] = [ ry,  -rx, 0.0]  # r × e_z
+        rot[0, 3 * k : 3 * k + 3] = [0.0, rz, -ry]  # r cross e_x
+        rot[1, 3 * k : 3 * k + 3] = [-rz, 0.0, rx]  # r cross e_y
+        rot[2, 3 * k : 3 * k + 3] = [ry, -rx, 0.0]  # r cross e_z
 
     tr_vecs = list(trans)
     for d in rot:
