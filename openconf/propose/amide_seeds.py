@@ -12,6 +12,74 @@ _RELAX_ITERS = 30  # MMFF steps after removing constraints
 _TORSION_WINDOW_DEG = 30.0
 _TORSION_FORCE_K = 500.0  # kcal/mol/rad²
 _MIN_MACROCYCLE_SIZE = 10
+# Smallest ring in which an in-ring amide can plausibly invert cis/trans. Below
+# this the ring geometry locks the amide and a 180° flip is unrecoverable.
+_MIN_AMIDE_FLIP_RING_SIZE = 8
+
+
+def find_ring_amide_bonds(
+    mol: Chem.Mol,
+    min_ring_size: int = _MIN_AMIDE_FLIP_RING_SIZE,
+) -> list[tuple[int, int, tuple[int, ...]]]:
+    """Return in-ring amide C-N bonds eligible for the amide-flip MC move.
+
+    Locates non-aromatic amide bonds (a carbonyl carbon single-bonded to N,
+    both in the same ring) inside rings of at least ``min_ring_size`` atoms,
+    where a 180° rotation about the C-N bond can meaningfully toggle the amide
+    between cis and trans. Both secondary (N-H) and tertiary amides qualify —
+    unlike the cis/trans seed enumeration, which targets only tertiary amides.
+
+    Each amide bond is reported once, associated with the largest ring that
+    contains it (the macrocycle, for fused systems), so the flip rotates the
+    most flexible arc available.
+
+    Args:
+        mol: molecule to scan
+        min_ring_size: smallest ring size considered flippable
+
+    Returns:
+        Tuples of (carbonyl_carbon_idx, nitrogen_idx, ring_atom_indices), where
+        ring_atom_indices is the ordered atom ring containing the bond
+    """
+    ring_info = mol.GetRingInfo()
+    # Pre-build (ring_set, ring_atoms) pairs in a list comprehension so ty can
+    # resolve the element type from AtomRings() without going through sorted().
+    eligible = [(set(r), tuple(r)) for r in ring_info.AtomRings() if len(r) >= min_ring_size]
+    rings = sorted(eligible, key=lambda x: len(x[1]), reverse=True)
+
+    results: list[tuple[int, int, tuple[int, ...]]] = []
+    seen: set[tuple[int, int]] = set()
+
+    for ring_set, ring_atoms in rings:
+        for n_idx in ring_set:
+            n_atom = mol.GetAtomWithIdx(n_idx)
+            if n_atom.GetAtomicNum() != 7 or n_atom.GetIsAromatic():
+                continue
+            for bond in n_atom.GetBonds():
+                if not bond.IsInRing():
+                    continue
+                c_atom = bond.GetOtherAtom(n_atom)
+                c_idx = c_atom.GetIdx()
+                if c_atom.GetAtomicNum() != 6 or c_idx not in ring_set or c_atom.GetIsAromatic():
+                    continue
+
+                bond_key = (min(n_idx, c_idx), max(n_idx, c_idx))
+                if bond_key in seen:
+                    continue
+
+                has_carbonyl = any(
+                    cb.GetBondTypeAsDouble() >= 1.9
+                    and cb.GetOtherAtom(c_atom).GetAtomicNum() == 8
+                    and not cb.GetOtherAtom(c_atom).GetIsAromatic()
+                    for cb in c_atom.GetBonds()
+                )
+                if not has_carbonyl:
+                    continue
+
+                seen.add(bond_key)
+                results.append((c_idx, n_idx, ring_atoms))
+
+    return results
 
 
 def find_ring_tertiary_amide_dihedrals(mol: Chem.Mol) -> list[tuple[int, int, int, int]]:

@@ -39,7 +39,7 @@ ensemble.to_xyz("output.xyz")
 
 ### Named Presets
 
-Five use-case presets are available out of the box:
+Six use-case presets are available out of the box:
 
 ```python
 from openconf import generate_conformers
@@ -48,9 +48,12 @@ ensemble = generate_conformers(mol, preset="rapid")         # fast virtual scree
 ensemble = generate_conformers(mol, preset="ensemble")      # property prediction
 ensemble = generate_conformers(mol, preset="spectroscopic") # NMR / IR / VCD
 ensemble = generate_conformers(mol, preset="docking")       # docking pose recovery
+ensemble = generate_conformers(mol, preset="macrocycle")    # macrocyclic ring systems
 ```
 
 For FEP-style analogue generation from a fixed pose, see [`generate_conformers_from_pose`](#5-analogue--fep-style-r-group-exploration) below.
+
+For macrocyclic ring systems, use the `"macrocycle"` preset, which enables low-mode following and a wide energy window to capture the full range of ring-pucker conformations.
 
 ### Custom Configuration
 
@@ -94,7 +97,7 @@ config.max_out = 200          # override a single field
 ensemble = generate_conformers(mol, config=config)
 ```
 
-Available presets: `"rapid"`, `"ensemble"`, `"spectroscopic"`, `"docking"`, `"analogue"`.
+Available presets: `"rapid"`, `"ensemble"`, `"spectroscopic"`, `"docking"`, `"analogue"`, `"macrocycle"`.
 
 Below are representative wall-clock timings measured on a single CPU core
 (Apple M2 Pro), mean over 3 runs.
@@ -279,7 +282,7 @@ ensemble.to_sdf("output.sdf")
 <details><summary>Full config equivalent</summary>
 
 ```python
-from openconf import ConformerConfig, PrismConfig, generate_conformers
+from openconf import ConformerConfig, generate_conformers
 
 config = ConformerConfig(
     max_out=250,
@@ -292,7 +295,6 @@ config = ConformerConfig(
     minimize_batch_size=8,
     parent_strategy="uniform",
     final_select="diverse",
-    prism_config=PrismConfig(energy_window_kcal=18.0),
 )
 ensemble = generate_conformers("CC(C)Cc1ccc(cc1)C(C)C(=O)O", config=config)
 ensemble.to_sdf("docking_input.sdf")
@@ -354,7 +356,7 @@ ensemble = generate_conformers_from_pose(mol, constrained_atoms=ring_atoms, conf
 <details><summary>Full analogue preset equivalent</summary>
 
 ```python
-from openconf import ConformerConfig, PrismConfig, generate_conformers_from_pose
+from openconf import ConformerConfig, generate_conformers_from_pose
 
 config = ConformerConfig(
     max_out=50,
@@ -365,7 +367,6 @@ config = ConformerConfig(
     minimize_batch_size=8,
     parent_strategy="softmax",
     final_select="diverse",
-    prism_config=PrismConfig(energy_window_kcal=10.0),
 )
 ensemble = generate_conformers_from_pose(mol, constrained_atoms=ring_atoms, config=config)
 ```
@@ -376,18 +377,21 @@ ensemble = generate_conformers_from_pose(mol, constrained_atoms=ring_atoms, conf
 
 ### Configuration Quick Reference
 
-| Parameter | Rapid | Ensemble | Spectroscopic | Docking | Analogue |
-|---|---|---|---|---|---|
-| `max_out` | 5 | 50 | 100 | 250 | 50 |
-| `n_steps` | 30 | 200 | 400 | 500 | 150 |
-| `energy_window_kcal` | 20 | 10 | 5 | 18 | 10 |
-| `seed_n_per_rotor` | 2 | 3 | 5 | 4 | — |
-| `seed_prune_rms_thresh` | 1.5 | 1.0 | 0.5 | 0.8 | — |
-| `do_final_refine` | False | True | True | False | True |
-| `parent_strategy` | softmax | softmax | softmax | uniform | softmax |
-| `final_select` | diverse | diverse | energy | diverse | diverse |
+| Parameter | Rapid | Ensemble | Spectroscopic | Docking | Analogue | Macrocycle |
+|---|---|---|---|---|---|---|
+| `max_out` | 5 | 50 | 100 | 250 | 50 | 200 |
+| `n_steps` | 30 | 200 | 400 | 500 | 150 | 500 |
+| `energy_window_kcal` | 20 | 10 | 5 | 18 | 10 | 100 |
+| `seed_n_per_rotor` | 2 | 3 | 5 | 4 | — | 3 |
+| `seed_prune_rms_thresh` | 1.5 | 1.0 | 0.5 | 0.8 | — | 1.0 |
+| `do_final_refine` | False | True | True | False | True | True |
+| `parent_strategy` | softmax | softmax | softmax | uniform | softmax | softmax |
+| `final_select` | diverse | diverse | energy | diverse | diverse | diverse |
+| `use_low_mode_following` | False | False | False | False | False | True |
 
 *Analogue mode uses `generate_conformers_from_pose`; seeding parameters are unused because ETKDG is skipped.*
+
+`use_low_mode_following` is enabled automatically by the `"macrocycle"` preset. Enable it manually via `ConformerConfig(use_low_mode_following=True)` for other highly coupled systems. See [SCIENCE.md](SCIENCE.md) for the full parameter reference.
 
 ## How It Works
 
@@ -397,6 +401,8 @@ Generates initial conformers using RDKit's ETKDGv3 algorithm. The seed count is 
 
 When `n_seeds=None`, openconf resolves a seed plan before embedding. Explicit `n_seeds` values are always honored. Macrocycles keep dense topology-derived seed budgets for ring-pucker discovery, while simple low-flexibility acyclic molecules and large flexible hydrocarbons use data-backed reduced budgets to avoid redundant RDKit embeddings.
 
+When `use_low_mode_following=True`, an additional seeding step runs after ETKDG: openconf numerically evaluates the Hessian at each source seed, identifies soft eigenvectors (eigenvalue < `low_mode_eigenvalue_threshold`), and scans displaced geometries along each mode in both directions. Each scan endpoint is minimized to a new local minimum, providing seeds that capture collective ring-puckering and correlated torsion motions that independent torsion moves miss. This mirrors the LMOD procedure (Kolossváry & Guida, *JACS*, 1996) and is most effective for macrocycles and other highly coupled systems. Disabled by default; Hessian evaluation costs 6N MMFF gradient calls per seed. The `"macrocycle"` preset enables low-mode following automatically. See [SCIENCE.md](SCIENCE.md) for full parameter details.
+
 ### 2. Hybrid Exploration
 
 The default "hybrid" strategy combines:
@@ -405,6 +411,8 @@ The default "hybrid" strategy combines:
 - MCMM moves: random torsion perturbations biased by the library
 - Correlated moves: simultaneous changes to adjacent rotors
 - Ring flip moves: SVD plane-reflection of non-aromatic 5–7-membered rings to sample chair/envelope inversions
+- Macrocycle ring moves: closure-preserving crankshaft and kinematic ring-closure (KIC) moves that rotate ring arcs without breaking bond lengths
+- Amide-flip moves: 180° rotation about an in-ring amide C–N bond to invert its cis/trans configuration in macrocycles
 - Global shakes: periodic large perturbations to escape local basins
 
 ### 3. Minimization
@@ -425,20 +433,18 @@ For the full algorithm description and parameter tuning guide, see [SCIENCE.md](
 
 Validated on the [Iridium benchmark](docs/benchmark_report.md) (120 drug-like molecules, bioactive conformer recovery from crystal structures). At N=200, openconf achieves a median best-RMSD of 0.58 Å vs. 0.63 Å for ETKDG+MMFF94s, at 10–15× lower wall time. The advantage is concentrated in flexible molecules (7–9 rotatable bonds), where openconf's torsion-library biasing and ring flip moves outperform pure distance-geometry seeding.
 
-openconf is not recommended for macrocycles (ring size ≥ 12). On macrocyclic ring systems, ETKDG+MMFF94s with a large conformer budget outperforms openconf in both RMSD and ensemble coverage metrics. ETKDGv3 has dedicated macrocycle distance-geometry bounds that openconf does not replicate.
+For macrocyclic systems (ring size ≥ 12) the default configuration trails ETKDG+MMFF94s in both RMSD and ensemble coverage metrics; ETKDGv3 has dedicated macrocycle distance-geometry bounds that the default MCMM exploration does not replicate. Setting `use_low_mode_following=True` in `ConformerConfig` adds Hessian-guided seeds targeting collective ring-puckering modes and is the recommended path for challenging macrocyclic systems where the default configuration is insufficient.
 
 ## API Reference
 
 ### Main Functions
 
-- `generate_conformers(mol, method="hybrid", config=None)` - Main entry point
-- `generate_conformers_from_smiles(smiles, ...)` - Convenience wrapper
+- `generate_conformers(mol, method="hybrid", config=None)` - Main entry point; accepts a `Chem.Mol` or SMILES string
 - `generate_conformers_from_pose(mol, constrained_atoms, config=None)` - FEP-style analogue generation from an aligned pose
 
 ### Configuration Classes
 
 - `ConformerConfig` - Main configuration
-- `PrismConfig` - PRISM Pruner settings
 - `ConstraintSpec` - Positional constraints for pose-locked generation
 
 ### Data Classes

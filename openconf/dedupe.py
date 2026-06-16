@@ -47,6 +47,7 @@ def prism_dedupe(
     mol: Chem.Mol,
     conf_ids: list[int],
     use_heavy_atoms_only: bool = True,
+    max_deviation: float = 0.01,
 ) -> list[int]:
     """Deduplicate conformers using PRISM Pruner.
 
@@ -54,6 +55,8 @@ def prism_dedupe(
         mol: molecule with conformers
         conf_ids: conformer IDs to process
         use_heavy_atoms_only: use only heavy atoms for comparison
+        max_deviation: MoI similarity threshold; conformers with all three principal
+            moments within this fraction of each other are considered duplicates.
 
     Returns:
         Identifiers to keep
@@ -62,5 +65,5 @@ def prism_dedupe(
         return conf_ids
 
     coords, atoms = _mol_to_arrays(mol, conf_ids, use_heavy_atoms_only)
-    _, mask = prune_by_moment_of_inertia(coords, atoms)
+    _, mask = prune_by_moment_of_inertia(coords, atoms, max_deviation=max_deviation)
     return [conf_id for conf_id, keep in zip(conf_ids, mask, strict=True) if keep]

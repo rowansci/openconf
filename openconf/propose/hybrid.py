@@ -28,6 +28,7 @@ from ..tuning import (
 )
 from .amide_seeds import find_ring_tertiary_amide_dihedrals, generate_amide_variant_seeds
 from .candidates import CandidateBatchWorkspace, ClashChecker, build_nonbonded_mask
+from .low_mode import generate_low_mode_seeds
 from .moves import MoveExecutor
 from .seeding import (
     SeedPlan,
@@ -510,6 +511,7 @@ class HybridProposer:
             has_ring_flips=bool(self.rotor_model.ring_flips),
             has_crankshaft=bool(self._moves.crankable_rings),
             has_kic=bool(self._moves.macro_kic_data),
+            has_amide=bool(self._moves.amide_flips),
             has_rotors=bool(self.rotor_model.rotors),
         )
 
@@ -963,6 +965,41 @@ def run_hybrid_generation(
     if input_positions is not None:
         for conf_id, energy in proposer.seed_from_input_conformer(input_positions):
             pool.insert(conf_id, energy, source="seed_input")
+
+    if effective_config.use_low_mode_following and seeds:
+        lm_ff_props = getattr(proposer.fast_minimizer, "_mmff_props", None)
+        if lm_ff_props is not None:
+            lm_start = time.perf_counter()
+            n_lm_accepted = 0
+            source_seeds = sorted(seeds, key=lambda x: x[1])[: effective_config.low_mode_n_source_seeds]
+            # Materialize the low-mode children for every source seed before any
+            # pool insertion. The source seeds are themselves pool members, so
+            # inserting one seed's children could evict a later, not-yet-processed
+            # source seed and leave generate_low_mode_seeds referencing a freed
+            # conformer (Bad Conformer Id, or a hard abort during MMFF setup).
+            lm_children: list[tuple[int, float]] = []
+            for seed_conf_id, _ in source_seeds:
+                lm_children.extend(
+                    generate_low_mode_seeds(
+                        mol,
+                        lm_ff_props,
+                        seed_conf_id,
+                        proposer.fast_minimizer,
+                        eigenvalue_threshold=effective_config.low_mode_eigenvalue_threshold,
+                        max_modes=effective_config.low_mode_max_modes,
+                        scan_step_size=effective_config.low_mode_scan_step_size,
+                        scan_energy_threshold=effective_config.low_mode_scan_energy_threshold,
+                        scan_max_steps=effective_config.low_mode_scan_max_steps,
+                    )
+                )
+            for lm_conf_id, lm_energy in lm_children:
+                if pool.insert(lm_conf_id, lm_energy, source="low_mode"):
+                    n_lm_accepted += 1
+                else:
+                    mol.RemoveConformer(lm_conf_id)
+            if stats:
+                stats["low_mode_time_s"] = time.perf_counter() - lm_start
+                stats["n_low_mode_seeds"] = n_lm_accepted
 
     batch_size = effective_config.minimize_batch_size
     step = 0

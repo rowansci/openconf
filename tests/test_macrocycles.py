@@ -330,3 +330,116 @@ def test_ring_torsion_diversity(name: str, smiles: str, min_sigs: int):
     ring_atoms = list(ens.mol.GetRingInfo().AtomRings()[0])
     sigs = {_torsion_signature(_ring_torsions(ens.mol, r.conf_id, ring_atoms)) for r in ens.records}
     assert len(sigs) >= min_sigs, f"{name}: found {len(sigs)} torsion families, need ≥ {min_sigs}"
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for the amide-flip move
+# ---------------------------------------------------------------------------
+
+# 13-membered macrolactams: N-methyl (tertiary) and N-H (secondary).
+_TERTIARY_MACROLACTAM = "O=C1CCCCCCCCCCN1C"
+_SECONDARY_MACROLACTAM = "O=C1CCCCCCCCCCN1"
+
+
+def _amide_proposer(smiles: str, seed: int = 1):
+    from openconf.propose.hybrid import HybridProposer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = prepare_molecule(Chem.MolFromSmiles(smiles))
+    AllChem.EmbedMolecule(mol, randomSeed=seed)
+    rm = build_rotor_model(mol)
+    proposer = HybridProposer(mol, rm, TorsionLibrary(), ConformerConfig(random_seed=0))
+    return mol, proposer
+
+
+def test_amide_flip_detected_on_macrolactam():
+    """A tertiary in-ring amide in a macrocycle registers exactly one flip site."""
+    mol, proposer = _amide_proposer(_TERTIARY_MACROLACTAM)
+    flips = proposer._moves.amide_flips
+    assert len(flips) == 1
+    c_idx, n_idx, moving = flips[0]
+    assert mol.GetAtomWithIdx(c_idx).GetAtomicNum() == 6
+    assert mol.GetAtomWithIdx(n_idx).GetAtomicNum() == 7
+    # Anchors (C, N) must never be in the moving set.
+    assert c_idx not in moving
+    assert n_idx not in moving
+    assert len(moving) > 0
+
+
+def test_amide_flip_detected_on_secondary_macrolactam():
+    """Secondary (N-H) in-ring amides also qualify for the flip move."""
+    _, proposer = _amide_proposer(_SECONDARY_MACROLACTAM)
+    assert len(proposer._moves.amide_flips) == 1
+
+
+def test_amide_flip_absent_on_cycloalkane():
+    """A ring with no amide bond registers no flip sites."""
+    _, proposer = _amide_proposer("C1CCCCCCCCCCC1")
+    assert proposer._moves.amide_flips == []
+
+
+def test_amide_flip_absent_on_small_lactam():
+    """Caprolactam (7-membered) is below the flippable-ring threshold."""
+    _, proposer = _amide_proposer("O=C1CCCCCN1C")
+    assert proposer._moves.amide_flips == []
+
+
+def test_amide_flip_preserves_ring_bonds():
+    """Rotating about the C-N axis keeps every ring bond length fixed (closure-preserving)."""
+    from openconf.propose.hybrid import _copy_conformer
+
+    mol, proposer = _amide_proposer(_TERTIARY_MACROLACTAM)
+    assert proposer._moves.amide_flips, "expected a flippable in-ring amide"
+    ring = mol.GetRingInfo().AtomRings()[0]
+    orig_id = mol.GetConformers()[0].GetId()
+
+    def bond_lengths(cid: int) -> list[float]:
+        pos = mol.GetConformer(cid).GetPositions()
+        return [float(np.linalg.norm(pos[ring[i]] - pos[ring[(i + 1) % len(ring)]])) for i in range(len(ring))]
+
+    before = bond_lengths(orig_id)
+    for _ in range(20):
+        new_id = _copy_conformer(mol, orig_id)
+        proposer._moves.apply_amide_flip_move(new_id)
+        after = bond_lengths(new_id)
+        for b, a in zip(before, after, strict=True):
+            assert abs(a - b) < 1e-6, f"Ring bond length drifted under amide flip: {b} -> {a}"
+        mol.RemoveConformer(new_id)
+
+
+def test_amide_flip_inverts_amide_dihedral():
+    """The O=C-N-C dihedral changes by roughly 180 degrees after a flip."""
+    from openconf.propose.amide_seeds import find_ring_tertiary_amide_dihedrals
+    from openconf.propose.hybrid import _copy_conformer
+
+    mol, proposer = _amide_proposer(_TERTIARY_MACROLACTAM)
+    quad = find_ring_tertiary_amide_dihedrals(mol)[0]
+    orig_id = mol.GetConformers()[0].GetId()
+
+    # Average |delta| over several flips should sit near 180 (the move targets 180 + jitter).
+    deltas = []
+    for _ in range(15):
+        new_id = _copy_conformer(mol, orig_id)
+        before = rdMolTransforms.GetDihedralDeg(mol.GetConformer(new_id), *quad)
+        proposer._moves.apply_amide_flip_move(new_id)
+        after = rdMolTransforms.GetDihedralDeg(mol.GetConformer(new_id), *quad)
+        diff = abs((after - before + 180.0) % 360.0 - 180.0)
+        deltas.append(diff)
+        mol.RemoveConformer(new_id)
+
+    mean_delta = float(np.mean(deltas))
+    assert mean_delta > 120.0, f"Amide flips did not substantially invert the dihedral: mean |delta|={mean_delta:.1f}"
+
+
+def test_amide_flip_generation_runs():
+    """End-to-end generation with an amide-flip-heavy schedule produces conformers."""
+    config = ConformerConfig(
+        max_out=8,
+        n_steps=40,
+        n_seeds=6,
+        random_seed=7,
+        do_final_refine=False,
+        move_probs={"amide_flip": 0.6, "single_rotor": 0.2, "crankshaft": 0.2},
+    )
+    ens = generate_conformers(_TERTIARY_MACROLACTAM, config=config)
+    assert ens.n_conformers > 0

@@ -10,9 +10,33 @@ Ring conformations require special treatment beyond simple torsion moves. For no
 
 For non-aromatic rings of size ≥ 6, openconf also applies a *crankshaft move*: two non-adjacent ring atoms are chosen as anchors, and the arc of ring atoms between them is rotated rigidly about the axis passing through the anchors. Because both anchors lie on the rotation axis, every bond length in the ring is preserved exactly — only the bond angles at the anchors deform, and those relax in the subsequent MMFF minimization. This gives a closure-preserving macrocycle move that single-torsion rotations cannot match. Rotation angles are drawn from [30°, 120°] with random sign; the arc length is drawn uniformly from 1 to n−3 ring atoms. Substituent subtrees rotate rigidly with their host ring atom. The crankshaft is selected with 12% probability per step when a crankable ring exists, and the move type is exempt from the usual static clash filter — post-rotation geometries are often momentarily strained but MMFF relaxes them reliably. Seed pruning (`pruneRmsThresh`) is also disabled automatically when a macrocycle is present, because the 1.0 Å default collapses distinct puckers before they reach MMFF.
 
+Macrocyclic backbones often hinge on the cis/trans configuration of their amide bonds, and the cis↔trans barrier is far too high for ordinary torsion jitter to cross during exploration. openconf therefore adds an *amide-flip move* targeting in-ring amide bonds (a non-aromatic carbonyl carbon single-bonded to nitrogen, both in a ring of ≥ 8 atoms; both secondary and tertiary amides qualify). The move rotates the rest of the ring 180° (± the usual torsion jitter) about the carbonyl-carbon→nitrogen axis, inverting the amide while — exactly as in the crankshaft — preserving every ring bond length, since both the carbonyl carbon and nitrogen lie on the rotation axis. Only the bond angles at those two atoms strain, and MMFF relaxes them. Each flippable amide bond is associated with the largest ring containing it (the macrocycle in fused systems) so the most flexible arc moves. Like the other ring moves it is selected with a small per-step probability when an in-ring amide exists and is exempt from the static clash filter. This complements the cis/trans seed enumeration: the seeds plant both configurations up front, while the move lets the walk discover a flip after other torsional rearrangements have accumulated.
+
 Seed count is computed automatically from the molecular topology rather than set to a fixed value. The base formula is `max(20, n_rotatable × 3)` (controlled by `seed_n_per_rotor`, default 3), plus 5 seeds per flippable ring and `ring_size²` seeds per macrocycle ring, capped at 500. A simple drug-like molecule with 8 rotatable bonds gets ~24 seeds; a steroid with three non-aromatic rings gets ~35; a 12-membered macrocycle gets ~164; a 16-membered macrocycle gets ~276. The super-linear macrocycle term reflects the fact that the low-energy pucker fraction drops rapidly with ring size, so dense seeding is the cheapest way to ensure the global basin is sampled. For simple low-flexibility acyclic molecules and large flexible hydrocarbons, openconf applies data-backed seed-plan reductions so redundant RDKit embeddings are skipped and MC torsion moves do more of the exploration. You can override this by setting `n_seeds` explicitly in `ConformerConfig`.
 
 The key to making this efficient is aggressive deduplication. Without it, the search quickly fills with near-identical structures that differ only in insignificant ways. openconf uses PRISM Pruner, which implements a cached divide-and-conquer algorithm for comparing conformers by RMSD and moment of inertia. Rather than doing O(N²) all-to-all comparisons, PRISM sorts conformers by energy and recursively partitions them, exploiting the fact that similar structures tend to cluster. This lets openconf maintain large internal pools (thousands of conformers) while keeping only the truly unique ones. The final selection step returns the lowest-energy conformers after PRISM deduplication, ensuring the output ensemble contains distinct, low-strain geometries.
+
+## Low-Mode Following (optional)
+
+When `use_low_mode_following=True`, openconf supplements the ETKDG seeds with a Hessian-guided step inspired by the LMOD procedure of Kolossváry & Guida (*JACS*, 1996). After each source seed is minimized, openconf numerically evaluates the 3N×3N Hessian matrix of the MMFF energy via central finite differences of the gradient: each Cartesian coordinate is displaced by ±`fd_step` (default 0.005 Å) and the gradient at the two displaced geometries is used to estimate one row of the Hessian. The resulting matrix is symmetrized.
+
+Diagonalizing the Hessian yields a spectrum of normal modes. The first several eigenvalues are near zero (rigid-body translations and rotations); openconf detects the rigid-body/conformational boundary via the largest eigenvalue gap in the first eight entries rather than assuming exactly six zero modes, which correctly handles linear molecules and cases where minimization is not fully converged. The next eigenvectors — the **soft modes** — correspond to collective conformational motions: ring puckerings, coupled backbone torsions, and other deformations that cannot be decomposed into independent single-bond rotations.
+
+For each soft mode whose eigenvalue is below `low_mode_eigenvalue_threshold` (default 100 kcal/mol/Å², capturing torsional and ring-puckering modes while excluding bond stretches), openconf scans the geometry in both the positive and negative directions along the eigenvector. At each step the geometry is displaced by `low_mode_scan_step_size` Å (3N Euclidean norm), the MMFF energy is evaluated, and scanning continues until the per-step energy increase exceeds `low_mode_scan_energy_threshold` (default ~2390 kcal/mol, equivalent to the paper's 10 000 kJ/mol) or `low_mode_scan_max_steps` is reached. The large default energy threshold means scanning passes through conformational barriers and stops only at severe steric clashes, placing the displaced endpoint on the far side of a barrier where a new local minimum can be found. Each scan endpoint that differs from the starting geometry is minimized; endpoints that minimize back to the starting geometry are discarded.
+
+The dominant cost is Hessian evaluation: 6N MMFF force-field constructions for an N-atom molecule. `low_mode_n_source_seeds` (default 1) caps how many seeds receive this treatment — only the lowest-energy seeds are selected. With the default settings of `low_mode_n_source_seeds=1` and `low_mode_max_modes=5`, at most 10 new seeds (2 directions × 5 modes) are added per Hessian evaluation.
+
+**When to enable:** macrocycles and other highly coupled flexible systems where independent single-rotor moves miss collective soft motions. The `"macrocycle"` preset enables low-mode following automatically alongside a wide 100 kcal/mol energy window. For simple acyclic drug-like molecules the MCMM exploration already covers these degrees of freedom and the Hessian cost is not worth paying.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `use_low_mode_following` | `False` | Enable low-mode seeding |
+| `low_mode_eigenvalue_threshold` | 100.0 | Eigenvalue cutoff (kcal/mol/Å²) for soft-mode selection |
+| `low_mode_max_modes` | 5 | Maximum soft modes to scan per source seed |
+| `low_mode_scan_step_size` | 0.25 | Displacement per scan step in Å (3N Euclidean norm) |
+| `low_mode_scan_energy_threshold` | 2390.0 | Per-step ΔE limit before stopping scan (kcal/mol) |
+| `low_mode_scan_max_steps` | 10 | Maximum scan steps per direction |
+| `low_mode_n_source_seeds` | 1 | Number of minimized seeds from which Hessians are computed |
 
 ## Pose-Constrained Generation (FEP / Analogue Mode)
 
@@ -57,6 +81,7 @@ ensemble = generate_conformers(mol, preset="rapid")         # fast virtual scree
 ensemble = generate_conformers(mol, preset="ensemble")      # property prediction (50 conformers)
 ensemble = generate_conformers(mol, preset="spectroscopic") # Boltzmann ensemble for NMR/IR
 ensemble = generate_conformers(mol, preset="docking")       # maximize bioactive recall
+ensemble = generate_conformers(mol, preset="macrocycle")    # macrocyclic ring systems
 ```
 
 Each preset is a fully specified `ConformerConfig`; you can inspect and override individual
@@ -112,23 +137,7 @@ config.energy_window_kcal = 20.0
 ensemble = generate_conformers(mol, config=config)
 ```
 
-Macrocycles (ring size ≥ 10): openconf uses ETKDGv3 macrocycle distance bounds at seed time, disables seed RMSD pruning (which otherwise collapses distinct puckers), and applies crankshaft moves during exploration. On cycloalkanes C6–C14 the default config recovers the ETKDG+MMFF94s reference minimum within 1 kcal/mol, and on C16 within ~0.2 kcal/mol. Cyclododecane is an edge case — its global [3333] basin occupies <1% of seeds and needs `n_seeds ≥ 300` for reliable recovery (default is ~164); override `n_seeds` if you need the exact global minimum for this specific ring size. For very flexible acyclic molecules (>10 rotatable bonds), increasing `n_steps` and `pool_max` helps ensure thorough exploration.
-
-### PRISM Pruner Settings
-
-`PrismConfig.energy_window_kcal` (default: 15.0) — Only compare conformers within this energy window during pruning. Should be ≥ your main `energy_window_kcal` setting to avoid pruning conformers that are still within your desired energy range.
-
-```python
-from openconf import PrismConfig
-
-prism_config = PrismConfig(energy_window_kcal=20.0)
-
-config = ConformerConfig(
-    max_out=200,
-    energy_window_kcal=15.0,
-    prism_config=prism_config,
-)
-```
+Macrocycles (ring size ≥ 10): openconf uses ETKDGv3 macrocycle distance bounds at seed time, disables seed RMSD pruning (which otherwise collapses distinct puckers), applies crankshaft and kinematic ring-closure moves during exploration, and supports an amide-flip move for macrocycles containing in-ring amide bonds (both secondary and tertiary). On cycloalkanes C6–C14 the default config recovers the ETKDG+MMFF94s reference minimum within 1 kcal/mol. Cyclododecane is an edge case — its global [3333] basin occupies <1% of seeds and needs `n_seeds ≥ 300` for reliable recovery (default is ~164); override `n_seeds` if you need the exact global minimum for this specific ring size. The `"macrocycle"` preset is the recommended starting point: it enables low-mode following for Hessian-guided seeds and uses a 100 kcal/mol energy window to capture the full range of ring-pucker minima. For very flexible acyclic molecules (>10 rotatable bonds), increasing `n_steps` and `pool_max` helps ensure thorough exploration.
 
 ### Performance Tips
 

@@ -15,6 +15,7 @@ from ..perceive import (
     conformer_matches_specified_stereochemistry,
     specified_stereochemistry,
 )
+from .amide_seeds import find_ring_amide_bonds
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -109,6 +110,7 @@ class MoveExecutor:
             self._ring_flip_allowed_arcs(ring_flip.ring_atoms, ring_flip.junction_atoms)
             for ring_flip in rotor_model.ring_flips
         ]
+        self.amide_flips = self._build_amide_flips(mol)
         self.operators: dict[str, MoveOperator] = {
             "single_rotor": self.apply_single_rotor_move,
             "multi_rotor": self.apply_multi_rotor_move,
@@ -117,6 +119,7 @@ class MoveExecutor:
             "ring_flip": self.apply_ring_flip_move,
             "crankshaft": self.apply_crankshaft_move,
             "ring_kic": self.apply_ring_kic_move,
+            "amide_flip": self.apply_amide_flip_move,
         }
 
     @staticmethod
@@ -178,6 +181,30 @@ class MoveExecutor:
             subtrees = [self._compute_substituent_atoms(mol, ring_set, i) for i in ring]
             crankable.append((tuple(ring), subtrees))
         return crankable
+
+    def _build_amide_flips(self, mol: Chem.Mol) -> list[tuple[int, int, np.ndarray]]:
+        """Precompute in-ring amide-flip rotation data.
+
+        For each flippable in-ring amide bond, the moving set is the union of
+        the substituent subtrees of every ring atom except the carbonyl carbon
+        and nitrogen themselves. Those two atoms anchor the rotation axis, so
+        rotating the rest of the ring 180° about the C-N bond inverts the amide
+        cis/trans relationship while preserving every ring bond length exactly
+        (only the bond angles at C and N deform, which MMFF relaxes).
+        """
+        amide_flips: list[tuple[int, int, np.ndarray]] = []
+        for c_idx, n_idx, ring_atoms in find_ring_amide_bonds(mol):
+            ring_set = frozenset(ring_atoms)
+            moving: set[int] = set()
+            for ring_atom in ring_atoms:
+                if ring_atom in (c_idx, n_idx):
+                    continue
+                moving |= self._compute_substituent_atoms(mol, ring_set, ring_atom)
+            if not moving:
+                continue
+            moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
+            amide_flips.append((c_idx, n_idx, moving_arr))
+        return amide_flips
 
     def sample_angle(self, rotor_idx: int) -> float:
         """Sample a torsion angle for a rotor."""
@@ -265,6 +292,43 @@ class MoveExecutor:
             return
 
         moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
+        _rodrigues_rotate(
+            all_pos,
+            moving_arr,
+            axis_origin,
+            float(axis_unit[0]),
+            float(axis_unit[1]),
+            float(axis_unit[2]),
+            theta,
+        )
+        conf.SetPositions(all_pos)
+
+    def apply_amide_flip_move(self, conf_id: int) -> None:
+        """Invert an in-ring amide by rotating its ring arc 180° about the C-N bond.
+
+        Picks a flippable in-ring amide and rotates the precomputed moving arc
+        about the carbonyl-carbon→nitrogen axis by ~180° (with the usual torsion
+        jitter). Because both anchors lie on the rotation axis, ring bond lengths
+        are preserved and only the angles at C and N strain; the subsequent MMFF
+        minimization relaxes them. Like the other ring moves this is exempt from
+        the static clash filter, since the flipped geometry is transiently
+        crowded before minimization. No-op when the molecule has no flippable
+        in-ring amides.
+        """
+        if not self.amide_flips:
+            return
+
+        c_idx, n_idx, moving_arr = random.choice(self.amide_flips)
+        conf = self.mol.GetConformer(conf_id)
+        all_pos = conf.GetPositions()
+        axis_origin = all_pos[c_idx]
+        axis_vec = all_pos[n_idx] - axis_origin
+        axis_norm = float(np.linalg.norm(axis_vec))
+        if axis_norm < 1e-6:
+            return
+        axis_unit = axis_vec / axis_norm
+
+        theta = np.deg2rad(180.0 + np.random.normal(0.0, self.config.torsion_jitter_deg))
         _rodrigues_rotate(
             all_pos,
             moving_arr,

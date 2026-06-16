@@ -366,6 +366,7 @@ class ConformerPool:
             self.mol,
             conf_ids,
             use_heavy_atoms_only=self.config.use_heavy_atoms_only,
+            max_deviation=self.config.prism_max_deviation,
         )
 
         # Remove duplicates
