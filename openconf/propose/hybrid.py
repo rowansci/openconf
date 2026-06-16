@@ -10,6 +10,7 @@ from rdkit.Chem import AllChem
 from rdkit.Geometry import rdGeometry
 
 from ..config import ConformerConfig, ConstraintSpec
+from ..exceptions import OpenConfValueError
 from ..perceive import RotorModel, _is_metal, filter_constrained_rotors
 from ..pool import ConformerPool
 from ..relax import (
@@ -944,7 +945,7 @@ def run_hybrid_generation(
     if constraint_spec is not None:
         existing_ids = [c.GetId() for c in mol.GetConformers()]
         if not existing_ids:
-            raise ValueError(
+            raise OpenConfValueError(
                 "Constrained conformer generation requires a starting conformer. "
                 "Use generate_conformers_from_pose to supply one."
             )

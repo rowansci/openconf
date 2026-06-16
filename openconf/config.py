@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+from .exceptions import OpenConfValueError
 from .tuning import get_default_move_probs
 
 ConformerPreset = Literal["rapid", "ensemble", "spectroscopic", "docking", "analogue", "macrocycle"]
@@ -24,7 +25,7 @@ _SUPPORTED_FINAL_SELECTIONS = frozenset({"energy", "diverse"})
 
 def _require_at_least(name: str, value: float, minimum: float) -> None:
     if value < minimum:
-        raise ValueError(f"{name} must be >= {minimum}, got {value}.")
+        raise OpenConfValueError(f"{name} must be >= {minimum}, got {value}.")
 
 
 def _require_optional_at_least(name: str, value: float | None, minimum: float) -> None:
@@ -34,30 +35,28 @@ def _require_optional_at_least(name: str, value: float | None, minimum: float) -
 
 def _require_greater_than(name: str, value: float, minimum: float) -> None:
     if value <= minimum:
-        raise ValueError(f"{name} must be > {minimum}, got {value}.")
+        raise OpenConfValueError(f"{name} must be > {minimum}, got {value}.")
 
 
 def _require_fraction(name: str, value: float) -> None:
-    """Validate a value constrained to the unit interval."""
     if not 0.0 <= value <= 1.0:
-        raise ValueError(f"{name} must be between 0.0 and 1.0, got {value}.")
+        raise OpenConfValueError(f"{name} must be between 0.0 and 1.0, got {value}.")
 
 
 def _validate_move_probs(move_probs: dict[str, float]) -> None:
-    """Validate move probability configuration."""
     if not move_probs:
-        raise ValueError("move_probs must contain at least one supported move type.")
+        raise OpenConfValueError("move_probs must contain at least one supported move type.")
 
     unknown = set(move_probs) - _SUPPORTED_MOVE_TYPES
     if unknown:
         unknown_str = ", ".join(sorted(unknown))
-        raise ValueError(f"move_probs contains unsupported move types: {unknown_str}.")
+        raise OpenConfValueError(f"move_probs contains unsupported move types: {unknown_str}.")
 
     if any(prob < 0.0 for prob in move_probs.values()):
-        raise ValueError("move_probs values must be >= 0.0.")
+        raise OpenConfValueError("move_probs values must be >= 0.0.")
 
     if sum(move_probs.values()) <= 0.0:
-        raise ValueError("move_probs must sum to a positive value.")
+        raise OpenConfValueError("move_probs must sum to a positive value.")
 
 
 @dataclass
@@ -313,24 +312,26 @@ class ConformerConfig:
         _validate_move_probs(self.move_probs)
 
         if self.minimizer != "rdkit_mmff":
-            raise ValueError(f"Unsupported minimizer {self.minimizer!r}. Only 'rdkit_mmff' is supported.")
+            raise OpenConfValueError(f"Unsupported minimizer {self.minimizer!r}. Only 'rdkit_mmff' is supported.")
 
         if self.parent_strategy not in _SUPPORTED_PARENT_STRATEGIES:
-            raise ValueError(
+            raise OpenConfValueError(
                 f"Unsupported parent_strategy {self.parent_strategy!r}. Choose from 'softmax', 'uniform', 'best'."
             )
 
         if self.final_select not in _SUPPORTED_FINAL_SELECTIONS:
-            raise ValueError(f"Unsupported final_select {self.final_select!r}. Choose from 'energy' or 'diverse'.")
+            raise OpenConfValueError(
+                f"Unsupported final_select {self.final_select!r}. Choose from 'energy' or 'diverse'."
+            )
 
         if self.seed_prune_rms_thresh < 0.0 and self.seed_prune_rms_thresh != -1.0:
-            raise ValueError("seed_prune_rms_thresh must be >= 0.0, or exactly -1.0 to disable pruning.")
+            raise OpenConfValueError("seed_prune_rms_thresh must be >= 0.0, or exactly -1.0 to disable pruning.")
 
         if self.pool_max is None:
             self.pool_max = max(self.max_out, min(max(self.n_steps, 1) * 5, 2500))
 
         if self.pool_max < self.max_out:
-            raise ValueError(f"pool_max must be >= max_out ({self.max_out}), got {self.pool_max}.")
+            raise OpenConfValueError(f"pool_max must be >= max_out ({self.max_out}), got {self.pool_max}.")
 
 
 def preset_config(preset: ConformerPreset) -> ConformerConfig:
@@ -371,7 +372,7 @@ def preset_config(preset: ConformerPreset) -> ConformerConfig:
         Configuration for requested use case
 
     Raises:
-        ValueError: preset is not recognized
+        OpenConfValueError: preset is not recognized
 
     Examples:
         >>> config = preset_config("docking")
@@ -468,7 +469,7 @@ def preset_config(preset: ConformerPreset) -> ConformerConfig:
                 final_select="diverse",
             )
         case _:
-            raise ValueError(
+            raise OpenConfValueError(
                 f"Unknown preset {preset!r}. "
                 "Choose from: 'rapid', 'ensemble', 'spectroscopic', 'docking', 'analogue', 'macrocycle'."
             )

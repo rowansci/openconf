@@ -5,6 +5,8 @@ from typing import Any, Sequence
 
 from rdkit import Chem
 
+from .exceptions import OpenConfValueError
+
 
 def write_sdf(
     mol: Chem.Mol,
@@ -106,13 +108,13 @@ def read_xyz(input_path: str | Path) -> Chem.Mol:
         Molecule with bonds and one conformer
 
     Raises:
-        ValueError: XYZ file cannot be parsed
+        OpenConfValueError: XYZ file cannot be parsed
     """
     from rdkit.Chem import rdDetermineBonds
 
     mol = Chem.MolFromXYZFile(str(input_path))
     if mol is None:
-        raise ValueError(f"Could not read XYZ file: {input_path}")
+        raise OpenConfValueError(f"Could not read XYZ file: {input_path}")
 
     rw = Chem.RWMol(mol)
     rdDetermineBonds.DetermineConnectivity(rw, useHueckel=False)
@@ -176,7 +178,7 @@ def read_sdf(input_path: str | Path) -> tuple[Chem.Mol, list[int], list[float]]:
                 energies.append(float("inf"))
 
     if mol is None:
-        raise ValueError(f"No valid molecules in {input_path}")
+        raise OpenConfValueError(f"No valid molecules in {input_path}")
 
     return mol, conf_ids, energies
 
@@ -207,11 +209,11 @@ def smiles_to_mol(smiles: str, add_hs: bool = True) -> Chem.Mol:
         Parsed molecule
 
     Raises:
-        ValueError: SMILES cannot be parsed
+        OpenConfValueError: SMILES cannot be parsed
     """
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
-        raise ValueError(f"Invalid SMILES: {smiles}")
+        raise OpenConfValueError(f"Invalid SMILES: {smiles}")
 
     if add_hs:
         mol = Chem.AddHs(mol)

@@ -9,6 +9,8 @@ from typing import Self
 
 from rdkit import Chem
 
+from .exceptions import OpenConfValueError
+
 
 @dataclass
 class TorsionRule:
@@ -32,7 +34,7 @@ class TorsionRule:
             self.weights = [1.0] * len(self.angles_deg)
         if len(self.weights) != len(self.angles_deg):
             msg = f"weights length ({len(self.weights)}) must match angles_deg length ({len(self.angles_deg)})"
-            raise ValueError(msg)
+            raise OpenConfValueError(msg)
 
 
 def _load_default_rules() -> list[TorsionRule]:

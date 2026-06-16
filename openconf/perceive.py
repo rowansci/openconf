@@ -5,6 +5,8 @@ from typing import Any
 
 from rdkit import Chem
 
+from .exceptions import OpenConfRuntimeError
+
 
 @dataclass
 class Rotor:
@@ -288,14 +290,14 @@ def prepare_molecule(mol: Chem.Mol, add_hs: bool = True) -> Chem.Mol:
         Prepared molecule with hydrogens and sanitization
 
     Raises:
-        ValueError: molecule cannot be sanitized
+        OpenConfRuntimeError: molecule cannot be sanitized
     """
     mol = Chem.Mol(mol)  # Make a copy
 
     try:
         Chem.SanitizeMol(mol)
     except (RuntimeError, ValueError) as e:
-        raise ValueError(f"Could not sanitize molecule: {e}") from e
+        raise OpenConfRuntimeError(f"Could not sanitize molecule: {e}") from e
 
     # Assign stereochemistry
     Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
