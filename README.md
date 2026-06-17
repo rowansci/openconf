@@ -12,7 +12,7 @@
 ## Installation
 
 ```bash
-pip install openconf
+uv pip install openconf
 ```
 
 ## Quick Start
