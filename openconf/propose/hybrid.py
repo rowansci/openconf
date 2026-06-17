@@ -10,6 +10,7 @@ from rdkit.Chem import AllChem
 from rdkit.Geometry import rdGeometry
 
 from ..config import ConformerConfig, ConstraintSpec
+from ..dedupe import prism_dedupe
 from ..exceptions import OpenConfValueError
 from ..perceive import RotorModel, _is_metal, filter_constrained_rotors
 from ..pool import ConformerPool
@@ -1076,6 +1077,17 @@ def run_hybrid_generation(
             )
         if stats:
             stats["final_refine_time_s"] = time.perf_counter() - final_refine_start
+
+        # Post-refinement dedupe: full MMFF geometry changes can merge conformers
+        # that were distinct at the fast-minimization stage.
+        energy_map_post = dict(zip(final_ids, final_energies, strict=True))
+        final_ids = prism_dedupe(
+            mol,
+            final_ids,
+            use_heavy_atoms_only=effective_config.use_heavy_atoms_only,
+            max_deviation=effective_config.prism_max_deviation,
+        )
+        final_energies = [energy_map_post[cid] for cid in final_ids]
     else:
         # return the fast-minimized energies already stored in the pool
         energy_map = {
@@ -1171,6 +1183,17 @@ def run_low_flex_generation(
         )
         if stats:
             stats["final_refine_time_s"] = time.perf_counter() - final_refine_start
+
+        # Post-refinement dedupe: full MMFF geometry changes can merge conformers
+        # that were distinct at the fast-minimization stage.
+        energy_map_post = dict(zip(final_ids, final_energies, strict=True))
+        final_ids = prism_dedupe(
+            mol,
+            final_ids,
+            use_heavy_atoms_only=config.use_heavy_atoms_only,
+            max_deviation=config.prism_max_deviation,
+        )
+        final_energies = [energy_map_post[cid] for cid in final_ids]
     else:
         energy_map = {
             cid: (rec.energy_kcal if rec.energy_kcal is not None else float("inf")) for cid, rec in pool.records.items()

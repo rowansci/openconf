@@ -1,3 +1,6 @@
+"""Custom exception types for OpenConf."""
+
+
 class OpenConfError(Exception):
     """Base class for all OpenConf errors."""
 
