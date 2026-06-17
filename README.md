@@ -100,7 +100,7 @@ ensemble = generate_conformers(mol, config=config)
 Available presets: `"rapid"`, `"ensemble"`, `"spectroscopic"`, `"docking"`, `"analogue"`, `"macrocycle"`.
 
 Below are representative wall-clock timings measured on a single CPU core
-(Apple M2 Pro), mean over 3 runs.
+(Apple M3 Pro), mean over 3 runs.
 
 ---
 
