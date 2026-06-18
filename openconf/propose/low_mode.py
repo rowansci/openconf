@@ -90,13 +90,16 @@ def _null_space(a: np.ndarray) -> np.ndarray:
 
 
 def _build_vibrational_basis(mol: Chem.Mol, conf_id: int) -> np.ndarray:
-    """Orthonormal basis for the vibrational subspace, shape (3N, 3N−6).
+    """Orthonormal basis for the mass-weighted vibrational subspace, shape (3N, 3N−6).
 
     Builds the six rigid-body vectors (3 translations + 3 rotations) in
-    Cartesian coordinates, then returns their null space — the vibrational
-    subspace.  Near-zero rotation vectors (linear molecules have one) are
-    dropped before the SVD so the basis always spans exactly 3N−6 or 3N−5
-    dimensions.
+    mass-weighted Cartesian coordinates q = M^{1/2} x, then returns their null
+    space — the vibrational subspace. Mass-weighting follows the GF-matrix
+    treatment (Wilson, Decius & Cross) so the projected Hessian yields
+    eigenvalues proportional to ω² rather than to force constants alone.
+
+    Near-zero rotation vectors (linear molecules have one) are dropped before
+    the SVD so the basis always spans exactly 3N−6 or 3N−5 dimensions.
 
     Args:
         mol: molecule supplying atom positions and masses
@@ -114,24 +117,31 @@ def _build_vibrational_basis(mol: Chem.Mol, conf_id: int) -> np.ndarray:
     com = np.sum(masses[:, None] * pos, axis=0) / np.sum(masses)
     r = pos - com  # COM-centred positions (N, 3)
 
-    # Translation: uniform displacement along each Cartesian axis
+    sqrt_masses = np.sqrt(masses)  # (N,)
+
+    # Mass-weighted translation: t_k[3i+k] = sqrt(m_i), zero otherwise.
+    # Represents uniform COM displacement in mass-weighted coordinates.
     trans = np.zeros((3, n_dof))
     for axis in range(3):
-        trans[axis, axis::3] = 1.0
+        trans[axis, axis::3] = sqrt_masses
     trans /= np.linalg.norm(trans, axis=1, keepdims=True)
 
-    # Rotation: (r cross e_axis) per atom, flattened into a 3N vector
+    # Mass-weighted rotation: R_k[3i:3i+3] = sqrt(m_i) * (r_i × e_k).
     rot = np.zeros((3, n_dof))
     for k in range(n_atoms):
+        sqrt_mk = sqrt_masses[k]
         rx, ry, rz = r[k]
-        rot[0, 3 * k : 3 * k + 3] = [0.0, rz, -ry]  # r cross e_x
-        rot[1, 3 * k : 3 * k + 3] = [-rz, 0.0, rx]  # r cross e_y
-        rot[2, 3 * k : 3 * k + 3] = [ry, -rx, 0.0]  # r cross e_z
+        rot[0, 3 * k : 3 * k + 3] = sqrt_mk * np.array([0.0, rz, -ry])   # r × e_x
+        rot[1, 3 * k : 3 * k + 3] = sqrt_mk * np.array([-rz, 0.0, rx])   # r × e_y
+        rot[2, 3 * k : 3 * k + 3] = sqrt_mk * np.array([ry, -rx, 0.0])   # r × e_z
 
+    # Threshold scales with sqrt(total_mass) since mass-weighted norms grow
+    # as sqrt(M_total * r^2). Drops near-zero vectors for linear molecules.
+    rot_threshold = 1e-8 * np.sqrt(float(np.sum(masses)))
     tr_vecs = list(trans)
     for d in rot:
         norm = float(np.linalg.norm(d))
-        if norm > 1e-8 * np.sqrt(float(n_atoms)):
+        if norm > rot_threshold:
             tr_vecs.append(d / norm)
 
     return _null_space(np.stack(tr_vecs))
@@ -146,28 +156,48 @@ def _select_low_modes(
 ) -> np.ndarray:
     """Select low-frequency eigenvectors by projecting out rigid-body modes.
 
-    Builds the Cartesian translation/rotation basis for the conformer, computes
-    its null space (the vibrational subspace), projects the Hessian into that
-    subspace, and diagonalises.  Eigenvectors whose eigenvalues are below
-    eigenvalue_threshold are returned as Cartesian unit-norm displacement vectors.
+    Works in mass-weighted Cartesian coordinates following the GF-matrix method.
+    The mass-weighted Hessian F_mw = M^{-1/2} H M^{-1/2} is projected into
+    the vibrational subspace and diagonalised; eigenvectors (proportional to ω²)
+    are unweighted back to Cartesian displacement vectors and renormalised.
+    This correctly accounts for atomic mass so that heavy-atom torsions (large m,
+    small k) are ranked as soft modes rather than being penalised by their mass.
 
     Args:
         hessian: symmetric 3N×3N Hessian matrix in kcal/mol/Å²
         mol: molecule providing atom positions and masses
         conf_id: conformer ID used to build the translation/rotation basis
-        eigenvalue_threshold: upper eigenvalue bound (kcal/mol/Å²)
+        eigenvalue_threshold: upper eigenvalue bound (kcal/mol/Å²·Da⁻¹); modes
+            below this value are treated as conformationally soft
         max_modes: maximum number of modes to return
 
     Returns:
-        Array of shape (3N, k) where k ≤ max_modes; columns are unit
-        eigenvectors in ascending eigenvalue order; shape (3N, 0) when
-        no conformational modes satisfy the threshold
+        Array of shape (3N, k) where k ≤ max_modes; columns are unit-norm
+        Cartesian displacement vectors in ascending eigenvalue order;
+        shape (3N, 0) when no conformational modes satisfy the threshold
     """
+    pt = Chem.GetPeriodicTable()
+    masses = np.array([pt.GetAtomicWeight(a.GetAtomicNum()) for a in mol.GetAtoms()])
+    # sqrt_masses[3i] = sqrt_masses[3i+1] = sqrt_masses[3i+2] = sqrt(m_i)
+    sqrt_masses = np.repeat(np.sqrt(masses), 3)  # (3N,)
+
+    # Mass-weighted Hessian: F_mw[i,j] = H[i,j] / (sqrt(m_i) * sqrt(m_j))
+    H_mw = hessian / np.outer(sqrt_masses, sqrt_masses)
+
+    # Vibrational basis is in mass-weighted coordinate space
     d_vib = _build_vibrational_basis(mol, conf_id)
-    h_vib = d_vib.T @ hessian @ d_vib
+    h_vib = d_vib.T @ H_mw @ d_vib
     eigenvalues, eigenvectors = np.linalg.eigh(h_vib)
-    # d_vib has orthonormal columns so d_vib @ eigenvectors is orthonormal in 3N space
-    vecs = d_vib @ eigenvectors
+
+    # d_vib @ eigenvectors: mass-weighted eigenvectors L_mw
+    # Unweight to Cartesian: L_cart[i] = L_mw[i] / sqrt(m_i)
+    vecs_mw = d_vib @ eigenvectors          # (3N, n_vib) in mass-weighted space
+    vecs = vecs_mw / sqrt_masses[:, None]   # (3N, n_vib) in Cartesian space
+
+    # Renormalise: mass-unweighting changes column norms
+    col_norms = np.linalg.norm(vecs, axis=0, keepdims=True)
+    col_norms[col_norms == 0.0] = 1.0
+    vecs /= col_norms
 
     mask = eigenvalues < eigenvalue_threshold
     if not np.any(mask):
