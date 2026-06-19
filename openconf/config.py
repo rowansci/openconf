@@ -204,11 +204,12 @@ class ConformerConfig:
             Hessian evaluation costs 6N MMFF gradient calls per seed (N = atom
             count); enable explicitly for macrocycles or other challenging
             systems where the extra sampling is warranted.
-        low_mode_eigenvalue_threshold: Hessian eigenvalue cutoff (kcal/mol/Å²)
+        low_mode_eigenvalue_threshold: Hessian eigenvalue cutoff in
+            mass-weighted coordinates (kcal/mol/Å²/Da, proportional to ω²)
             below which eigenvectors are treated as conformationally soft and
-            followed. Lower values select only the very softest modes; higher
-            values include stiffer bending modes. Default 100.0 captures
-            torsional and ring-puckering modes while excluding bond stretches.
+            followed. Torsional modes typically fall at ~0.01–5, ring-puckering
+            at ~1–20, and C–H stretches at ~400+, so the default 100.0 captures
+            conformational modes while excluding bond stretches.
         low_mode_max_modes: maximum number of low-frequency eigenvectors to
             follow per seed conformer. Caps the number of additional
             minimizations regardless of how many modes satisfy
