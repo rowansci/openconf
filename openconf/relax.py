@@ -6,6 +6,8 @@ from typing import Protocol
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from .exceptions import OpenConfValueError
+
 _METAL_POSITION_FORCE_CONSTANT = 1e4
 _METAL_LIGAND_DISTANCE_TOLERANCE = 0.05
 _METAL_LIGAND_DISTANCE_FORCE_CONSTANT = 100000.0
@@ -220,8 +222,8 @@ def get_minimizer(name: str = "rdkit_mmff", metal_atom_indices: frozenset[int] =
         Minimizer instance
 
     Raises:
-        ValueError: unknown minimizer name
+        OpenConfValueError: unknown minimizer name
     """
     if name == "rdkit_mmff":
         return RDKitMMFFMinimizer(metal_atom_indices=metal_atom_indices, **kwargs)
-    raise ValueError(f"Unknown minimizer: {name}")
+    raise OpenConfValueError(f"Unknown minimizer: {name}")

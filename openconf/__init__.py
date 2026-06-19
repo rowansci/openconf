@@ -8,6 +8,7 @@ from .api import (
 )
 from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_config
 from .dedupe import prism_dedupe
+from .exceptions import OpenConfError, OpenConfRuntimeError, OpenConfValueError
 from .io import mol_to_smiles, read_sdf, read_xyz, smiles_to_mol, write_sdf, write_xyz
 from .perceive import Rotor, RotorModel, build_rotor_model, filter_constrained_rotors, prepare_molecule
 from .relax import RDKitMMFFMinimizer, get_minimizer
@@ -19,6 +20,9 @@ __all__ = [
     "ConformerPreset",
     "ConformerRecord",
     "ConstraintSpec",
+    "OpenConfError",
+    "OpenConfRuntimeError",
+    "OpenConfValueError",
     "RDKitMMFFMinimizer",
     "Rotor",
     "RotorModel",

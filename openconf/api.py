@@ -8,6 +8,7 @@ import numpy as np
 from rdkit import Chem
 
 from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_config
+from .exceptions import OpenConfRuntimeError, OpenConfValueError
 from .perceive import (
     StereoSignature,
     build_rotor_model,
@@ -43,7 +44,7 @@ def _filter_stereochemistry_consistent_conformers(
         Filtered conformer IDs and energies
 
     Raises:
-        ValueError: all final conformers changed specified stereochemistry
+        OpenConfRuntimeError: all final conformers changed specified stereochemistry
     """
     if not reference_stereo.tetrahedral and not reference_stereo.bonds:
         return conf_ids, energies
@@ -62,7 +63,7 @@ def _filter_stereochemistry_consistent_conformers(
         mol.RemoveConformer(conf_id)
 
     if conf_ids and not kept_ids:
-        raise ValueError("All generated conformers changed input-specified stereochemistry.")
+        raise OpenConfRuntimeError("All generated conformers changed input-specified stereochemistry.")
 
     return kept_ids, kept_energies
 
@@ -158,11 +159,11 @@ class ConformerEnsemble:
             Normalized weights aligned with `records`
 
         Raises:
-            ValueError: temperature is not positive
-            ValueError: ensemble has no conformers with finite energies
+            OpenConfValueError: temperature is not positive
+            OpenConfRuntimeError: ensemble has no conformers with finite energies
         """
         if temperature <= 0.0:
-            raise ValueError(f"temperature must be > 0, got {temperature}.")
+            raise OpenConfValueError(f"temperature must be > 0, got {temperature}.")
 
         energies = np.array(
             [r.energy_kcal if r.energy_kcal is not None else np.inf for r in self.records],
@@ -170,7 +171,7 @@ class ConformerEnsemble:
         )
         finite = np.isfinite(energies)
         if not finite.any():
-            raise ValueError("Cannot compute Boltzmann weights: no conformer has a finite energy.")
+            raise OpenConfRuntimeError("Cannot compute Boltzmann weights: no conformer has a finite energy.")
 
         shifted = energies - energies[finite].min()
         weights = np.zeros_like(energies)
@@ -330,7 +331,7 @@ class ConformerEnsemble:
             )
 
         if mol is None:
-            raise ValueError(f"No valid molecules in {input_path}")
+            raise OpenConfValueError(f"No valid molecules in {input_path}")
 
         return cls(mol=mol, records=records)
 
@@ -367,7 +368,7 @@ def generate_conformers(
         Generated conformers with metadata
 
     Raises:
-        ValueError: mol is invalid, method is unknown, or both *config*
+        OpenConfValueError: mol is invalid, method is unknown, or both *config*
             and *preset* are supplied.
 
     Examples:
@@ -378,7 +379,7 @@ def generate_conformers(
         >>> ensemble = generate_conformers(mol, config=ConformerConfig(max_out=100))  # doctest: +SKIP
     """
     if config is not None and preset is not None:
-        raise ValueError("Specify at most one of 'config' or 'preset', not both.")
+        raise OpenConfValueError("Specify at most one of 'config' or 'preset', not both.")
 
     if isinstance(mol, str):
         from .io import smiles_to_mol
@@ -405,7 +406,7 @@ def generate_conformers(
         runner = run_low_flex_generation if use_low_flex_path else run_hybrid_generation
         mol, conf_ids, energies, generation_stats = runner(mol, rotor_model, config, torsion_library=torsion_library)
     else:
-        raise ValueError(f"Unknown method: {method}. Available: 'hybrid'")
+        raise OpenConfValueError(f"Unknown method: {method}. Available: 'hybrid'")
 
     conf_ids, energies = _filter_stereochemistry_consistent_conformers(mol, conf_ids, energies, reference_stereo)
 
@@ -458,7 +459,7 @@ def generate_conformers_from_pose(
         preserving the input core geometry.
 
     Raises:
-        ValueError: mol has no conformers, both *config* and *preset* are
+        OpenConfValueError: mol has no conformers, both *config* and *preset* are
             supplied, or if the method is unknown.
 
     Examples:
@@ -471,10 +472,10 @@ def generate_conformers_from_pose(
         ... )
     """
     if config is not None and preset is not None:
-        raise ValueError("Specify at most one of 'config' or 'preset', not both.")
+        raise OpenConfValueError("Specify at most one of 'config' or 'preset', not both.")
 
     if mol.GetNumConformers() == 0:
-        raise ValueError(
+        raise OpenConfValueError(
             "mol must have at least one conformer for pose-constrained generation. "
             "Supply the MCS-aligned pose as conformer 0."
         )
