@@ -452,6 +452,12 @@ For macrocyclic systems (ring size ≥ 12) the default configuration trails ETKD
 - `ConformerEnsemble` - Container for conformers and metadata
 - `ConformerRecord` - Per-conformer metadata
 
+### Exceptions
+
+- `OpenConfError` - Base class for all library errors; catch this to handle any openconf exception
+- `OpenConfValueError` - Bad input or configuration (also a `ValueError`)
+- `OpenConfRuntimeError` - Chemistry-level failure during generation (also a `RuntimeError`)
+
 ### Lower-Level Components
 
 - `prepare_molecule(mol)` - Sanitize and add hydrogens
