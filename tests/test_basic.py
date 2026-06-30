@@ -187,6 +187,101 @@ def test_runtime_tuning_policy_helpers():
     assert is_clash_exempt_move("single_rotor") is False
 
 
+def test_runtime_tuning_keeps_tm_moves_without_rotors():
+    """TM ligand moves can receive budget when no torsion rotors are available."""
+    from openconf.tuning import resolve_move_probabilities
+
+    resolved = resolve_move_probabilities(
+        {"single_rotor": 0.5, "tm_ligand_rotate": 0.5},
+        constrained=True,
+        has_ring_flips=False,
+        has_crankshaft=False,
+        has_tm_moves=True,
+        has_rotors=False,
+    )
+
+    positive = {move_type: prob for move_type, prob in resolved.items() if prob > 0.0}
+    assert positive == {"tm_ligand_rotate": pytest.approx(1.0)}
+
+
+def test_runtime_tuning_falls_back_from_unavailable_tm_moves():
+    """Unavailable TM-specialized moves fall back to simpler metal-ligand moves."""
+    from openconf.tuning import resolve_move_probabilities
+
+    resolved = resolve_move_probabilities(
+        {"tm_haptic_rotate": 0.3, "tm_ligand_rotate": 0.7},
+        constrained=True,
+        has_ring_flips=False,
+        has_crankshaft=False,
+        has_tm_moves=True,
+        has_tm_haptic=False,
+    )
+
+    positive = {move_type: prob for move_type, prob in resolved.items() if prob > 0.0}
+    assert positive == {"tm_ligand_rotate": pytest.approx(1.0)}
+
+
+def test_transition_metal_preset_config_values():
+    """Transition-metal preset enables TM-specific exploration knobs."""
+    from openconf.config import preset_config
+
+    config = preset_config("transition_metal")
+
+    assert config.use_low_mode_following is True
+    assert config.parent_strategy == "uniform"
+    assert config.do_final_refine is False
+    assert config.minimize_batch_size == 1
+    assert config.prism_max_deviation == pytest.approx(0.005)
+    assert config.tm_seed_move_attempts == 2
+    assert config.tm_seed_torsion_attempts == 0
+    assert config.final_select == "diverse"
+    assert config.move_probs["tm_ligand_rotate"] == pytest.approx(0.25)
+    assert config.move_probs["tm_haptic_rotate"] == pytest.approx(0.1)
+
+
+def test_auto_transition_metal_sampling_adds_tm_budget_for_metal_inputs():
+    """Metal inputs receive automatic TM move budget unless already configured."""
+    from openconf import ConformerConfig
+    from openconf.api import _with_auto_transition_metal_sampling
+
+    config = ConformerConfig(move_probs={"single_rotor": 1.0}, tm_seed_move_attempts=0)
+    resolved = _with_auto_transition_metal_sampling(config, has_metal=True, has_metal_input=True)
+
+    assert resolved is not config
+    assert resolved.move_probs["single_rotor"] == pytest.approx(0.65)
+    assert resolved.move_probs["tm_ligand_rotate"] == pytest.approx(0.2625)
+    assert resolved.move_probs["tm_haptic_rotate"] == pytest.approx(0.0875)
+    assert sum(resolved.move_probs.values()) == pytest.approx(1.0)
+    assert resolved.tm_seed_move_attempts == 2
+    assert config.move_probs == {"single_rotor": 1.0}
+    assert config.tm_seed_move_attempts == 0
+
+
+def test_auto_transition_metal_sampling_respects_opt_out_and_existing_tm_budget():
+    """Automatic TM move overlay preserves explicit user choices."""
+    from openconf import ConformerConfig
+    from openconf.api import _with_auto_transition_metal_sampling
+
+    opt_out = ConformerConfig(
+        move_probs={"single_rotor": 1.0},
+        auto_transition_metal_moves=False,
+    )
+    assert _with_auto_transition_metal_sampling(opt_out, has_metal=True, has_metal_input=True) is opt_out
+
+    existing_tm = ConformerConfig(move_probs={"single_rotor": 0.5, "tm_ligand_rotate": 0.5})
+    assert _with_auto_transition_metal_sampling(existing_tm, has_metal=True, has_metal_input=True) is existing_tm
+    assert _with_auto_transition_metal_sampling(existing_tm, has_metal=False, has_metal_input=False) is existing_tm
+
+    torsion_seed_config = ConformerConfig(move_probs={"single_rotor": 1.0}, tm_seed_torsion_attempts=1)
+    resolved_torsion_seed_config = _with_auto_transition_metal_sampling(
+        torsion_seed_config,
+        has_metal=True,
+        has_metal_input=True,
+    )
+    assert resolved_torsion_seed_config.tm_seed_move_attempts == 0
+    assert resolved_torsion_seed_config.tm_seed_torsion_attempts == 1
+
+
 def test_generate_candidate_uses_operator_table_and_clash_checker(monkeypatch):
     """Candidate generation dispatches through the operator table and clash helper."""
     from rdkit.Chem import AllChem
@@ -415,6 +510,53 @@ def test_zero_energy_is_preserved():
     assert pool.get_parent(strategy="best") == 0
 
 
+def test_pool_overflow_preserves_protected_conformer():
+    """Pool eviction should not remove protected input conformers."""
+    from openconf import ConformerConfig
+    from openconf.pool import ConformerPool
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CC"))
+    for _ in range(3):
+        mol.AddConformer(Chem.Conformer(mol.GetNumAtoms()), assignId=True)
+
+    pool = ConformerPool(mol=mol, config=ConformerConfig(max_out=1, pool_max=2, energy_window_kcal=20.0))
+    assert pool.insert(0, 10.0, source="seed", tags={"protected": True})
+    assert pool.insert(1, 1.0, source="seed")
+    assert pool.insert(2, 0.5, source="hybrid")
+
+    assert 0 in pool.records
+    assert 1 not in pool.records
+    assert 2 in pool.records
+
+
+def test_diverse_final_selection_preserves_protected_seed():
+    """Diverse final selection should work with protected conformers."""
+    from pathlib import Path
+
+    from openconf import ConformerConfig
+    from openconf.io import read_xyz
+    from openconf.pool import ConformerPool
+
+    mol = read_xyz(Path(__file__).resolve().parent / "data" / "ru_pcymene_aqua.xyz")
+    base_conf = mol.GetConformer(0)
+    for offset in (0.15, -0.15):
+        conf = Chem.Conformer(base_conf)
+        pos = conf.GetAtomPosition(0)
+        conf.SetAtomPosition(0, (pos.x + offset, pos.y, pos.z))
+        mol.AddConformer(conf, assignId=True)
+
+    config = ConformerConfig(max_out=2, pool_max=3, final_select="diverse")
+    pool = ConformerPool(mol=mol, config=config)
+    assert pool.insert(0, 10.0, source="seed", tags={"protected": True})
+    assert pool.insert(1, 1.0, source="hybrid")
+    assert pool.insert(2, 2.0, source="hybrid")
+
+    selected = pool.select_final()
+
+    assert len(selected) == 2
+    assert selected[0] == 0
+
+
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [
@@ -459,7 +601,15 @@ def test_hybrid_collect_stats_populates_proposal_breakdown():
     """Flexible molecules record nonzero proposal-stage timing components."""
     from openconf import ConformerConfig, generate_conformers
 
-    config = ConformerConfig(max_out=5, n_seeds=4, n_steps=20, pool_max=30, random_seed=5, collect_stats=True)
+    config = ConformerConfig(
+        max_out=5,
+        n_seeds=4,
+        n_steps=20,
+        pool_max=30,
+        random_seed=5,
+        collect_stats=True,
+        move_probs={"single_rotor": 1.0},
+    )
     ensemble = generate_conformers("CCCCc1ccccc1", config=config)
 
     assert float(ensemble.generation_stats["proposal_stage_time_s"]) > 0.0
@@ -470,6 +620,9 @@ def test_hybrid_collect_stats_populates_proposal_breakdown():
     assert float(ensemble.generation_stats["batch_staging_time_s"]) >= 0.0
     assert float(ensemble.generation_stats["batch_commit_time_s"]) >= 0.0
     assert int(ensemble.generation_stats["n_steps_executed"]) > 0
+    assert int(ensemble.generation_stats["move_selected_single_rotor"]) > 0
+    assert int(ensemble.generation_stats["move_clash_passed_single_rotor"]) > 0
+    assert int(ensemble.generation_stats["move_pool_accepted_single_rotor"]) > 0
 
 
 def test_large_flexible_defaults_are_topology_tuned():
@@ -1225,3 +1378,258 @@ def test_xyz_metals_remain_pinned_during_generation(xyz_name: str):
             for (i, j), distance in ref_distances.items()
         )
         assert max_shell_delta < 0.35
+
+
+def test_tm_ligand_rotate_moves_ligand_and_keeps_metal_fixed():
+    """TM ligand rotation changes donor-side atoms while leaving metal fixed."""
+    from pathlib import Path
+
+    import numpy as np
+
+    from openconf.config import ConformerConfig
+    from openconf.io import read_xyz
+    from openconf.perceive import _is_metal, build_rotor_model
+    from openconf.propose.hybrid import HybridProposer, _copy_conformer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = read_xyz(Path(__file__).resolve().parent / "data" / "ru_pcymene_aqua.xyz")
+    rotor_model = build_rotor_model(mol)
+    proposer = HybridProposer(mol, rotor_model, TorsionLibrary(), ConformerConfig(random_seed=2))
+    assert proposer._moves.tm_ligand_rotations
+
+    parent_id = mol.GetConformer(0).GetId()
+    new_id = _copy_conformer(mol, parent_id)
+    before = mol.GetConformer(new_id).GetPositions().copy()
+
+    proposer._moves.apply_tm_ligand_rotate_move(new_id)
+
+    after = mol.GetConformer(new_id).GetPositions()
+    metal_indices = [atom.GetIdx() for atom in mol.GetAtoms() if _is_metal(atom)]
+    nonmetal_indices = [atom.GetIdx() for atom in mol.GetAtoms() if not _is_metal(atom)]
+
+    assert np.allclose(after[metal_indices], before[metal_indices], atol=1e-8)
+    assert max(float(np.linalg.norm(after[idx] - before[idx])) for idx in nonmetal_indices) > 0.05
+
+
+def test_tm_specific_move_sites_detected_from_xyz():
+    """TM move chemotypes are detected conservatively from XYZ connectivity."""
+    from pathlib import Path
+
+    from openconf.config import ConformerConfig
+    from openconf.io import read_xyz
+    from openconf.perceive import build_rotor_model
+    from openconf.propose.hybrid import HybridProposer
+    from openconf.torsionlib import TorsionLibrary
+
+    ru_mol = read_xyz(Path(__file__).resolve().parent / "data" / "ru_pcymene_aqua.xyz")
+    ru_moves = HybridProposer(
+        ru_mol,
+        build_rotor_model(ru_mol),
+        TorsionLibrary(),
+        ConformerConfig(random_seed=0),
+    )._moves
+
+    assert ru_moves.tm_ligand_rotations
+    assert len(ru_moves.tm_haptic_rotations) == 1
+
+    dppf_mol = read_xyz(Path(__file__).resolve().parent / "data" / "dppf_ni_ph_aniline.xyz")
+    dppf_moves = HybridProposer(
+        dppf_mol,
+        build_rotor_model(dppf_mol),
+        TorsionLibrary(),
+        ConformerConfig(random_seed=0),
+    )._moves
+
+    assert not dppf_moves.tm_haptic_rotations
+    assert dppf_moves.tm_ligand_rotations
+
+
+def test_tm_haptic_rotate_moves_eta_ligand():
+    """Haptic ligand rotation moves eta-bound ligand while keeping metal fixed."""
+    from pathlib import Path
+
+    import numpy as np
+
+    from openconf.config import ConformerConfig
+    from openconf.io import read_xyz
+    from openconf.perceive import _is_metal, build_rotor_model
+    from openconf.propose.hybrid import HybridProposer, _copy_conformer
+    from openconf.torsionlib import TorsionLibrary
+
+    mol = read_xyz(Path(__file__).resolve().parent / "data" / "ru_pcymene_aqua.xyz")
+    proposer = HybridProposer(mol, build_rotor_model(mol), TorsionLibrary(), ConformerConfig(random_seed=4))
+    assert proposer._moves.tm_haptic_rotations
+
+    parent_id = mol.GetConformer(0).GetId()
+    new_id = _copy_conformer(mol, parent_id)
+    before = mol.GetConformer(new_id).GetPositions().copy()
+    metal_indices = [atom.GetIdx() for atom in mol.GetAtoms() if _is_metal(atom)]
+    _metal_idx, _haptic_arr, moving_arr = proposer._moves.tm_haptic_rotations[0]
+
+    proposer._moves.apply_tm_haptic_rotate_move(new_id)
+
+    after = mol.GetConformer(new_id).GetPositions()
+    assert np.allclose(after[metal_indices], before[metal_indices], atol=1e-8)
+    assert max(float(np.linalg.norm(after[int(idx)] - before[int(idx)])) for idx in moving_arr) > 0.05
+
+
+def test_xyz_metal_input_seed_is_retained():
+    """Metal XYZ generation should preserve input conformer basin."""
+    from pathlib import Path
+
+    from rdkit import Chem
+    from rdkit.Chem import rdMolAlign
+
+    from openconf import ConformerConfig, generate_conformers
+    from openconf.io import read_xyz
+
+    mol = read_xyz(Path(__file__).resolve().parent / "data" / "ru_pcymene_aqua.xyz")
+    ref_mol = Chem.Mol(mol)
+    heavy_map = [(atom.GetIdx(), atom.GetIdx()) for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1]
+
+    config = ConformerConfig(
+        max_out=3,
+        n_steps=0,
+        n_seeds=1,
+        random_seed=1,
+        num_threads=1,
+        skip_clash_check=True,
+        seed_minimization_iters=20,
+        collect_stats=True,
+    )
+    ensemble = generate_conformers(mol, config=config, add_hs=False)
+
+    best_rmsd = min(
+        rdMolAlign.AlignMol(Chem.Mol(ensemble.mol), ref_mol, prbCid=conf_id, refCid=0, atomMap=heavy_map)
+        for conf_id in ensemble.conf_ids
+    )
+    assert best_rmsd < 0.8
+    assert ensemble.generation_stats["seed_plan_reason"] == "seed_input_metal"
+
+
+def test_xyz_metal_unminimized_input_seed_fallback(monkeypatch):
+    """Metal XYZ input seed should survive force-field setup failure."""
+    from pathlib import Path
+
+    from openconf import ConformerConfig, generate_conformers
+    from openconf.io import read_xyz
+    from openconf.propose import hybrid
+
+    mol = read_xyz(Path(__file__).resolve().parent / "data" / "ru_pcymene_aqua.xyz")
+
+    def fail_seed_from_conformer(self: hybrid.HybridProposer, conf_id: int) -> list[tuple[int, float]]:
+        return []
+
+    monkeypatch.setattr(hybrid.HybridProposer, "seed_from_conformer", fail_seed_from_conformer)
+
+    config = ConformerConfig(
+        max_out=1,
+        n_steps=0,
+        n_seeds=1,
+        random_seed=1,
+        num_threads=1,
+        do_final_refine=False,
+        collect_stats=True,
+    )
+    ensemble = generate_conformers(mol, config=config, add_hs=False)
+
+    assert ensemble.n_conformers == 1
+    assert ensemble.energies == [float("inf")]
+    assert ensemble.generation_stats["seed_plan_reason"] == "seed_input_metal"
+    assert int(ensemble.generation_stats["n_unminimized_input_seeds"]) == 1
+
+
+def test_xyz_metal_low_mode_runs_with_uff_backend():
+    """Low-mode seeding should run for metal XYZ inputs without MMFF typing."""
+    from pathlib import Path
+
+    from rdkit.Chem import AllChem
+
+    from openconf import ConformerConfig, generate_conformers
+    from openconf.io import read_xyz
+
+    mol = read_xyz(Path(__file__).resolve().parent / "data" / "ru_pcymene_aqua.xyz")
+    assert AllChem.MMFFGetMoleculeProperties(mol, mmffVariant="MMFF94s") is None
+
+    config = ConformerConfig(
+        max_out=4,
+        n_steps=0,
+        n_seeds=1,
+        random_seed=1,
+        num_threads=1,
+        skip_clash_check=True,
+        seed_minimization_iters=5,
+        fast_minimization_iters=5,
+        use_low_mode_following=True,
+        low_mode_max_modes=1,
+        low_mode_scan_max_steps=1,
+        low_mode_n_source_seeds=1,
+        collect_stats=True,
+    )
+    ensemble = generate_conformers(mol, config=config, add_hs=False)
+
+    assert ensemble.n_conformers > 0
+    assert "low_mode_time_s" in ensemble.generation_stats
+
+
+def test_xyz_metal_tm_move_seeds_are_generated():
+    """TM move seeding should augment input-seeded metal generation."""
+    from pathlib import Path
+
+    from openconf import ConformerConfig, generate_conformers
+    from openconf.io import read_xyz
+
+    mol = read_xyz(Path(__file__).resolve().parent / "data" / "ru_pcymene_aqua.xyz")
+    config = ConformerConfig(
+        max_out=8,
+        n_steps=0,
+        n_seeds=1,
+        random_seed=2,
+        num_threads=1,
+        skip_clash_check=True,
+        seed_minimization_iters=5,
+        fast_minimization_iters=5,
+        use_low_mode_following=False,
+        tm_seed_move_attempts=1,
+        energy_window_kcal=100.0,
+        collect_stats=True,
+    )
+
+    ensemble = generate_conformers(mol, config=config, add_hs=False)
+
+    assert ensemble.generation_stats["seed_plan_reason"] == "seed_input_metal"
+    assert int(ensemble.generation_stats["n_tm_move_seed_attempts"]) > 0
+    assert int(ensemble.generation_stats["n_tm_move_seeds"]) > 0
+    assert ensemble.n_conformers > 1
+
+
+def test_xyz_metal_tm_torsion_seeds_are_generated():
+    """TM torsion seeding should augment input-seeded metal generation."""
+    from pathlib import Path
+
+    from openconf import ConformerConfig, generate_conformers
+    from openconf.io import read_xyz
+
+    mol = read_xyz(Path(__file__).resolve().parent / "data" / "hydrocupration_ts.xyz")
+    config = ConformerConfig(
+        max_out=8,
+        n_steps=0,
+        n_seeds=1,
+        random_seed=2,
+        num_threads=1,
+        skip_clash_check=True,
+        seed_minimization_iters=5,
+        fast_minimization_iters=5,
+        use_low_mode_following=False,
+        tm_seed_move_attempts=0,
+        tm_seed_torsion_attempts=1,
+        energy_window_kcal=100.0,
+        collect_stats=True,
+    )
+
+    ensemble = generate_conformers(mol, config=config, add_hs=False)
+
+    assert ensemble.generation_stats["seed_plan_reason"] == "seed_input_metal"
+    assert int(ensemble.generation_stats["n_tm_torsion_seed_attempts"]) > 0
+    assert int(ensemble.generation_stats["n_tm_torsion_seeds"]) > 0
+    assert ensemble.n_conformers > 1

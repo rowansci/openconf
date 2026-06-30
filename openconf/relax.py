@@ -6,40 +6,8 @@ from typing import Protocol
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from .constraints import ConstraintModel, add_constraints_to_force_field
 from .exceptions import OpenConfValueError
-
-_METAL_POSITION_FORCE_CONSTANT = 1e4
-_METAL_LIGAND_DISTANCE_TOLERANCE = 0.05
-_METAL_LIGAND_DISTANCE_FORCE_CONSTANT = 100000.0
-
-
-def _metal_ligand_reference_distances(
-    mol: Chem.Mol,
-    metal_atom_indices: frozenset[int],
-) -> dict[tuple[int, int], float]:
-    """Measure reference metal-ligand distances from first conformer.
-
-    Args:
-        mol: molecule with reference conformer
-        metal_atom_indices: metal-center atom indices
-
-    Returns:
-        Reference distances keyed by metal-neighbor atom index pairs
-    """
-    if not metal_atom_indices or mol.GetNumConformers() == 0:
-        return {}
-
-    conf = mol.GetConformer(mol.GetConformers()[0].GetId())
-    distances: dict[tuple[int, int], float] = {}
-    for m_idx in metal_atom_indices:
-        metal_pos = conf.GetAtomPosition(int(m_idx))
-        for nb in mol.GetAtomWithIdx(int(m_idx)).GetNeighbors():
-            nb_idx = int(nb.GetIdx())
-            nb_pos = conf.GetAtomPosition(nb_idx)
-            distance = float(metal_pos.Distance(nb_pos))
-            if distance > 0.0:
-                distances[(int(m_idx), nb_idx)] = distance
-    return distances
 
 
 class Minimizer(Protocol):
@@ -76,10 +44,7 @@ class RDKitMMFFMinimizer:
             unavailable these are pinned via UFFAddPositionConstraint so that
             untyped metals (lanthanides, actinides, …) do not drift freely
             during UFF minimization.
-        _metal_ref_positions: reference coordinates for metal centers when
-            input molecule already has coordinates.
-        _metal_ligand_ref_distances: reference distances from metal centers to
-            directly connected ligating atoms when input molecule has coordinates.
+        constraint_model: geometry constraints to apply during minimization.
     """
 
     max_iters: int = 500
@@ -88,9 +53,9 @@ class RDKitMMFFMinimizer:
     variant: str = "MMFF94s"
     dielectric: float = 4.0
     metal_atom_indices: frozenset[int] = field(default_factory=frozenset)
+    constraint_model: ConstraintModel = field(default_factory=ConstraintModel.empty)
     _mmff_props: object = field(default=None, init=False, repr=False)
-    _metal_ref_positions: dict[int, tuple[float, float, float]] = field(default_factory=dict, init=False, repr=False)
-    _metal_ligand_ref_distances: dict[tuple[int, int], float] = field(default_factory=dict, init=False, repr=False)
+    _prepared_constraints: ConstraintModel = field(default_factory=ConstraintModel.empty, init=False, repr=False)
 
     def prepare(self, mol: Chem.Mol) -> None:
         """Cache MMFF properties for the molecule.
@@ -103,40 +68,17 @@ class RDKitMMFFMinimizer:
         self._mmff_props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant=self.variant)
         if self._mmff_props is not None:
             self._mmff_props.SetMMFFDielectricConstant(self.dielectric)
-        self._metal_ref_positions = {}
-        if self.metal_atom_indices and mol.GetNumConformers() > 0:
-            conf = mol.GetConformer(mol.GetConformers()[0].GetId())
-            for idx in self.metal_atom_indices:
-                pos = conf.GetAtomPosition(int(idx))
-                self._metal_ref_positions[int(idx)] = (float(pos.x), float(pos.y), float(pos.z))
-        self._metal_ligand_ref_distances = _metal_ligand_reference_distances(mol, self.metal_atom_indices)
+        metal_constraints = ConstraintModel.from_metal_shell(mol, self.metal_atom_indices)
+        self._prepared_constraints = metal_constraints.combine(self.constraint_model)
 
-    def _add_metal_uff_constraints(self, ff) -> None:
-        """Add metal position and reference-shell distance constraints to UFF force field."""
-        for m_idx in self.metal_atom_indices:
-            ff.UFFAddPositionConstraint(int(m_idx), 0.0, _METAL_POSITION_FORCE_CONSTANT)
-        for (m_idx, nb_idx), distance in self._metal_ligand_ref_distances.items():
-            ff.UFFAddDistanceConstraint(
-                int(m_idx),
-                int(nb_idx),
-                False,
-                max(0.0, distance - _METAL_LIGAND_DISTANCE_TOLERANCE),
-                distance + _METAL_LIGAND_DISTANCE_TOLERANCE,
-                _METAL_LIGAND_DISTANCE_FORCE_CONSTANT,
-            )
-
-    def _reset_metal_positions(self, mol: Chem.Mol, conf_id: int) -> None:
-        """Snap metal centers back to reference coordinates when available.
+    def _reset_constrained_positions(self, mol: Chem.Mol, conf_id: int) -> None:
+        """Snap position-constrained atoms back to reference coordinates.
 
         Args:
             mol: molecule containing conformer
             conf_id: conformer ID to update
         """
-        if not self._metal_ref_positions:
-            return
-        conf = mol.GetConformer(int(conf_id))
-        for idx, pos in self._metal_ref_positions.items():
-            conf.SetAtomPosition(idx, pos)
+        self._prepared_constraints.reset_positions(mol, conf_id)
 
     def minimize(self, mol: Chem.Mol, conf_id: int) -> float:
         """Minimize conformer in place and return energy in kcal/mol.
@@ -151,14 +93,15 @@ class RDKitMMFFMinimizer:
         try:
             if self._mmff_props is not None:
                 ff = AllChem.MMFFGetMoleculeForceField(mol, self._mmff_props, confId=int(conf_id))
+                family = "MMFF"
             else:
                 ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(conf_id))
+                family = "UFF"
             if ff is None:
                 return float("inf")
-            if self._mmff_props is None and self.metal_atom_indices:
-                self._add_metal_uff_constraints(ff)
+            add_constraints_to_force_field(ff, self._prepared_constraints, family)
             ff.Minimize(maxIts=int(self.max_iters))
-            self._reset_metal_positions(mol, conf_id)
+            self._reset_constrained_positions(mol, conf_id)
             return float(ff.CalcEnergy())
         except (ValueError, RuntimeError):
             return float("inf")
@@ -210,12 +153,18 @@ def minimize_confs_mmff(
     ]
 
 
-def get_minimizer(name: str = "rdkit_mmff", metal_atom_indices: frozenset[int] = frozenset(), **kwargs) -> Minimizer:
+def get_minimizer(
+    name: str = "rdkit_mmff",
+    metal_atom_indices: frozenset[int] = frozenset(),
+    constraint_model: ConstraintModel | None = None,
+    **kwargs,
+) -> Minimizer:
     """Get a minimizer by name.
 
     Args:
         name: minimizer name; only `"rdkit_mmff"` is currently supported
         metal_atom_indices: metal atoms to exclude from MMFF typing
+        constraint_model: geometry constraints to apply during minimization
         **kwargs: additional arguments for minimizer
 
     Returns:
@@ -225,5 +174,9 @@ def get_minimizer(name: str = "rdkit_mmff", metal_atom_indices: frozenset[int] =
         OpenConfValueError: unknown minimizer name
     """
     if name == "rdkit_mmff":
-        return RDKitMMFFMinimizer(metal_atom_indices=metal_atom_indices, **kwargs)
+        return RDKitMMFFMinimizer(
+            metal_atom_indices=metal_atom_indices,
+            constraint_model=constraint_model or ConstraintModel.empty(),
+            **kwargs,
+        )
     raise OpenConfValueError(f"Unknown minimizer: {name}")

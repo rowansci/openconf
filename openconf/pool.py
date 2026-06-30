@@ -11,12 +11,15 @@ from rdkit.Chem import Descriptors3D, rdFreeSASA
 from .config import ConformerConfig
 from .dedupe import prism_dedupe
 
-type Pool = ConformerPool
-
 
 def _energy_or_inf(energy: float | None) -> float:
     """Return a finite sentinel for missing energies."""
     return energy if energy is not None else float("inf")
+
+
+def _is_protected(record: "ConformerRecord") -> bool:
+    """Return whether pool operations must keep conformer when possible."""
+    return bool(record.tags.get("protected", False))
 
 
 def _build_3d_descriptors(
@@ -55,6 +58,19 @@ def _build_3d_descriptors(
     ]
 
 
+def _build_selection_features(mol: Chem.Mol, conf_ids: list[int]) -> np.ndarray:
+    """Build final-selection feature matrix for conformers."""
+    radii = rdFreeSASA.classifyAtoms(mol)
+    polar_atom_indices = np.array(
+        [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() not in {1, 6}],
+        dtype=int,
+    )
+    features = []
+    for cid in conf_ids:
+        features.append(_build_3d_descriptors(mol, cid, radii, polar_atom_indices))
+    return np.asarray(features, dtype=float)
+
+
 def _softmax_parent_weights(energies: np.ndarray, temperature: float) -> np.ndarray:
     """Return numerically stable parent-selection weights."""
     finite = np.isfinite(energies)
@@ -90,19 +106,13 @@ def _pick_diverse_maxmin(
         conf_ids: conformer IDs to choose from
         energies: energies corresponding to each conformer
         k: conformer count to select
-
     Returns:
         Selected conformer IDs, at most `k`
     """
     if k >= len(conf_ids):
         return conf_ids
 
-    radii = rdFreeSASA.classifyAtoms(mol)
-    polar_atom_indices = np.array(
-        [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() not in {1, 6}],
-        dtype=int,
-    )
-    features = np.array([_build_3d_descriptors(mol, cid, radii, polar_atom_indices) for cid in conf_ids])
+    features = _build_selection_features(mol, conf_ids)
 
     # Normalize: zero mean, unit variance (avoid div-by-zero on flat features).
     mean = features.mean(axis=0)
@@ -154,7 +164,7 @@ class ConformerRecord:
 class ParentSampler:
     """Cached parent selector for a conformer pool."""
 
-    pool: Pool
+    pool: "ConformerPool"
     _dirty: bool = field(default=True, init=False, repr=False)
     _records_ref: dict[int, ConformerRecord] | None = field(default=None, init=False, repr=False)
     _records_version: int = field(default=-1, init=False, repr=False)
@@ -311,11 +321,15 @@ class ConformerPool:
         assert self.config.pool_max is not None
         if self.size >= self.config.pool_max:
             # Refresh cached worst if stale (O(N) scan, amortised rare).
+            if self._worst_id is not None and self._worst_id not in self.records:
+                self._worst_dirty = True
+            if not self._worst_dirty and self._worst_id is not None and _is_protected(self.records[self._worst_id]):
+                self._worst_dirty = True
             if self._worst_dirty or self._worst_id is None:
-                self._worst_id = max(
-                    self.records,
-                    key=lambda cid: _energy_or_inf(self.records[cid].energy_kcal),
-                )
+                removable = [cid for cid, record in self.records.items() if not _is_protected(record)]
+                if not removable:
+                    return False
+                self._worst_id = max(removable, key=lambda cid: _energy_or_inf(self.records[cid].energy_kcal))
                 self._worst_energy = _energy_or_inf(self.records[self._worst_id].energy_kcal)
                 self._worst_dirty = False
 
@@ -325,18 +339,24 @@ class ConformerPool:
             # Remove worst (O(1) now that we know _worst_id).
             del self.records[self._worst_id]
             self.mol.RemoveConformer(self._worst_id)
+            self._worst_id = None
             self._worst_dirty = True  # next worst needs a fresh scan
 
         # Add new conformer.
+        record_tags = tags or {}
         self.records[conf_id] = ConformerRecord(
             conf_id=conf_id,
             energy_kcal=energy,
             source=source,
-            tags=tags or {},
+            tags=record_tags,
         )
 
         # Update cached worst in O(1) if the new conformer is the new worst.
-        if not self._worst_dirty and (self._worst_id is None or energy > self._worst_energy):
+        if (
+            not record_tags.get("protected", False)
+            and not self._worst_dirty
+            and (self._worst_id is None or energy > self._worst_energy)
+        ):
             self._worst_energy = energy
             self._worst_id = conf_id
 
@@ -371,7 +391,8 @@ class ConformerPool:
 
         # Remove duplicates
         keep_set = set(keep_ids)
-        to_remove = [cid for cid in conf_ids if cid not in keep_set]
+        protected = {cid for cid, record in self.records.items() if _is_protected(record)}
+        to_remove = [cid for cid in conf_ids if cid not in keep_set and cid not in protected]
 
         for cid in to_remove:
             del self.records[cid]
@@ -403,19 +424,30 @@ class ConformerPool:
 
         conf_ids = self.conf_ids
         energies = self.energies
+        protected_ids = [cid for cid in conf_ids if _is_protected(self.records[cid])]
+        if len(protected_ids) >= self.config.max_out:
+            sorted_protected = sorted(
+                protected_ids,
+                key=lambda cid: _energy_or_inf(self.records[cid].energy_kcal),
+            )
+            return sorted_protected[: self.config.max_out]
 
         # Take lowest-energy conformers
         if self.config.final_select == "energy":
-            sorted_pairs = sorted(zip(energies, conf_ids, strict=True))
-            return [cid for _, cid in sorted_pairs[: self.config.max_out]]
+            unprotected_pairs = sorted(
+                (energy, cid) for energy, cid in zip(energies, conf_ids, strict=True) if cid not in protected_ids
+            )
+            n_needed = self.config.max_out - len(protected_ids)
+            return protected_ids + [cid for _, cid in unprotected_pairs[:n_needed]]
 
         # Diverse final selection (greedy MaxMin on shape descriptors)
-        return _pick_diverse_maxmin(
+        selected = _pick_diverse_maxmin(
             self.mol,
-            conf_ids,
-            energies,
-            k=self.config.max_out,
+            [cid for cid in conf_ids if cid not in protected_ids],
+            [energy for energy, cid in zip(energies, conf_ids, strict=True) if cid not in protected_ids],
+            k=self.config.max_out - len(protected_ids),
         )
+        return protected_ids + selected
 
     def get_parent(self, strategy: str = "softmax") -> int | None:
         """Select a parent conformer for mutation.

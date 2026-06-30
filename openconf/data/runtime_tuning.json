@@ -48,7 +48,9 @@
       "ring_flip": 0.09,
       "crankshaft": 0.05,
       "ring_kic": 0.05,
-      "amide_flip": 0.05
+      "amide_flip": 0.05,
+      "tm_ligand_rotate": 0.0,
+      "tm_haptic_rotate": 0.0
     },
     "forced_periodic_move": "global_shake",
     "constrained_fallback_move": "single_rotor",
@@ -62,7 +64,9 @@
       "ring_flip": "single_rotor",
       "crankshaft": "single_rotor",
       "ring_kic": "crankshaft",
-      "amide_flip": "single_rotor"
+      "amide_flip": "single_rotor",
+      "tm_ligand_rotate": "single_rotor",
+      "tm_haptic_rotate": "tm_ligand_rotate"
     }
   },
   "clash_check": {
@@ -70,7 +74,9 @@
       "ring_flip",
       "crankshaft",
       "ring_kic",
-      "amide_flip"
+      "amide_flip",
+      "tm_ligand_rotate",
+      "tm_haptic_rotate"
     ]
   },
   "low_flex_path": {

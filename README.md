@@ -39,7 +39,7 @@ ensemble.to_xyz("output.xyz")
 
 ### Named Presets
 
-Six use-case presets are available out of the box:
+Seven use-case presets are available out of the box:
 
 ```python
 from openconf import generate_conformers
@@ -49,11 +49,18 @@ ensemble = generate_conformers(mol, preset="ensemble")      # property predictio
 ensemble = generate_conformers(mol, preset="spectroscopic") # NMR / IR / VCD
 ensemble = generate_conformers(mol, preset="docking")       # docking pose recovery
 ensemble = generate_conformers(mol, preset="macrocycle")    # macrocyclic ring systems
+ensemble = generate_conformers(mol, preset="transition_metal") # organometallics
 ```
 
 For FEP-style analogue generation from a fixed pose, see [`generate_conformers_from_pose`](#5-analogue--fep-style-r-group-exploration) below.
 
 For macrocyclic ring systems, use the `"macrocycle"` preset, which enables low-mode following and a wide energy window to capture the full range of ring-pucker conformations.
+
+For transition-metal complexes with 3D input coordinates, use the
+`"transition_metal"` preset. Other presets also add a transition-metal move
+budget automatically when a metal atom is detected; set
+`ConformerConfig(auto_transition_metal_moves=False)` to preserve an exact custom
+move schedule.
 
 ### Custom Configuration
 
@@ -82,7 +89,7 @@ ensemble = generate_conformers(mol, config=config)
 
 ## Use-Case Examples
 
-The right configuration depends on the downstream task. Four named presets
+The right configuration depends on the downstream task. Named presets
 cover the most common workflows:
 
 ```python
@@ -97,7 +104,7 @@ config.max_out = 200          # override a single field
 ensemble = generate_conformers(mol, config=config)
 ```
 
-Available presets: `"rapid"`, `"ensemble"`, `"spectroscopic"`, `"docking"`, `"analogue"`, `"macrocycle"`.
+Available presets: `"rapid"`, `"ensemble"`, `"spectroscopic"`, `"docking"`, `"analogue"`, `"macrocycle"`, `"transition_metal"`.
 
 Below are representative wall-clock timings measured on a single CPU core
 (Apple M3 Pro), mean over 3 runs.

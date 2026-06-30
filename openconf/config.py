@@ -6,7 +6,15 @@ from typing import Literal
 from .exceptions import OpenConfValueError
 from .tuning import get_default_move_probs
 
-ConformerPreset = Literal["rapid", "ensemble", "spectroscopic", "docking", "analogue", "macrocycle"]
+ConformerPreset = Literal[
+    "rapid",
+    "ensemble",
+    "spectroscopic",
+    "docking",
+    "analogue",
+    "macrocycle",
+    "transition_metal",
+]
 _SUPPORTED_MOVE_TYPES = frozenset(
     {
         "single_rotor",
@@ -17,6 +25,8 @@ _SUPPORTED_MOVE_TYPES = frozenset(
         "crankshaft",
         "ring_kic",
         "amide_flip",
+        "tm_ligand_rotate",
+        "tm_haptic_rotate",
     }
 )
 _SUPPORTED_PARENT_STRATEGIES = frozenset({"softmax", "uniform", "best"})
@@ -130,7 +140,7 @@ class ConformerConfig:
             values flatten the distribution (more exploration); smaller values
             concentrate sampling on the lowest-energy pool members. Default 2.0
             matches typical MCMM practice and is unrelated to physical temperature.
-        final_select: How the final conformer set is chosen.
+        final_select: How final conformer set is chosen.
         skip_clash_check: skip the pre-minimization clash check entirely.
             When False (default), use a fast numpy-based clash filter that avoids
             expensive minimization of heavily clashed structures. For large or
@@ -191,6 +201,10 @@ class ConformerConfig:
             preserved.
         collect_stats: record stage timings and counters for benchmark
             analysis and attach them to the returned ensemble.
+        auto_transition_metal_moves: add transition-metal move budget
+            automatically when molecule contains metal atoms and configured
+            move probabilities do not already include TM-specific moves.
+            Set to False to preserve exact custom move probabilities.
         torsion_multitry_attempts: pre-minimization torsion proposal count
             to try for clash-filtered torsion moves. The candidate with the
             lowest clash score is kept, reducing wasted minimizations on crowded
@@ -230,6 +244,15 @@ class ConformerConfig:
             skipped for low mode following but still enter the MCMM pool
             normally. Default 1 (only the lowest-energy seed) keeps the
             Hessian cost fixed regardless of total seed count.
+        tm_seed_move_attempts: number of seed conformers to attempt per
+            available TM-specific move type when starting from input
+            coordinates. This supplements the protected input seed with
+            early metal-ligand rotation and haptic-rotation variants while
+            reusing the normal move and minimization machinery.
+        tm_seed_torsion_attempts: number of seed conformers to attempt per
+            available torsion move type for TM inputs. This samples ligand-arm
+            torsion states around the protected coordination geometry before
+            the MC walk starts.
     """
 
     max_out: int = 200
@@ -270,6 +293,7 @@ class ConformerConfig:
     patience: int = 150
     auto_tune_large_flexible: bool = True
     collect_stats: bool = False
+    auto_transition_metal_moves: bool = True
     torsion_multitry_attempts: int = 4
     use_low_mode_following: bool = False
     low_mode_eigenvalue_threshold: float = 100.0
@@ -278,6 +302,8 @@ class ConformerConfig:
     low_mode_scan_energy_threshold: float = 2390.0
     low_mode_scan_max_steps: int = 10
     low_mode_n_source_seeds: int = 1
+    tm_seed_move_attempts: int = 0
+    tm_seed_torsion_attempts: int = 0
 
     def __post_init__(self) -> None:
         _require_at_least("max_out", self.max_out, 1)
@@ -309,6 +335,8 @@ class ConformerConfig:
         _require_greater_than("low_mode_scan_energy_threshold", self.low_mode_scan_energy_threshold, 0.0)
         _require_at_least("low_mode_scan_max_steps", self.low_mode_scan_max_steps, 1)
         _require_at_least("low_mode_n_source_seeds", self.low_mode_n_source_seeds, 1)
+        _require_at_least("tm_seed_move_attempts", self.tm_seed_move_attempts, 0)
+        _require_at_least("tm_seed_torsion_attempts", self.tm_seed_torsion_attempts, 0)
         _validate_move_probs(self.move_probs)
 
         if self.minimizer != "rdkit_mmff":
@@ -364,9 +392,15 @@ def preset_config(preset: ConformerPreset) -> ConformerConfig:
       and low-mode following enabled to supplement ETKDG seeds with
       Hessian-guided scan points along collective ring-puckering modes.
 
+    - `"transition_metal"` — Organometallic and coordination complexes.
+      Keeps wide energy filtering, uses uniform parent sampling, enables
+      low-mode following, and allocates move budget to metal-ligand fragment
+      rotations while relying on shared metal-shell constraints.
+
     Args:
         preset: one of `"rapid"`, `"ensemble"`, `"spectroscopic"`,
-            `"docking"`, `"analogue"`, `"macrocycle"`.
+            `"docking"`, `"analogue"`, `"macrocycle"`,
+            `"transition_metal"`.
 
     Returns:
         Configuration for requested use case
@@ -384,6 +418,9 @@ def preset_config(preset: ConformerPreset) -> ConformerConfig:
         >>> config = preset_config("macrocycle")
         >>> config.energy_window_kcal
         100.0
+        >>> config = preset_config("transition_metal")
+        >>> config.use_low_mode_following
+        True
     """
     match preset:
         case "rapid":
@@ -468,8 +505,38 @@ def preset_config(preset: ConformerPreset) -> ConformerConfig:
                 parent_strategy="softmax",
                 final_select="diverse",
             )
+        case "transition_metal":
+            return ConformerConfig(
+                max_out=100,
+                pool_max=500,
+                n_steps=250,
+                energy_window_kcal=100.0,
+                move_probs={
+                    "single_rotor": 0.25,
+                    "multi_rotor": 0.15,
+                    "correlated": 0.1,
+                    "ring_flip": 0.05,
+                    "tm_ligand_rotate": 0.25,
+                    "tm_haptic_rotate": 0.1,
+                },
+                use_low_mode_following=True,
+                low_mode_max_modes=3,
+                low_mode_scan_max_steps=4,
+                low_mode_n_source_seeds=1,
+                tm_seed_move_attempts=2,
+                tm_seed_torsion_attempts=0,
+                seed_n_per_rotor=1,
+                seed_prune_rms_thresh=1.5,
+                prism_max_deviation=0.005,
+                do_final_refine=False,
+                minimize_batch_size=1,
+                parent_strategy="uniform",
+                final_select="diverse",
+                adaptive_moves=True,
+            )
         case _:
             raise OpenConfValueError(
                 f"Unknown preset {preset!r}. "
-                "Choose from: 'rapid', 'ensemble', 'spectroscopic', 'docking', 'analogue', 'macrocycle'."
+                "Choose from: 'rapid', 'ensemble', 'spectroscopic', 'docking', 'analogue', 'macrocycle', "
+                "'transition_metal'."
             )

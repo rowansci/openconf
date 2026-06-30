@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 type Config = ConformerConfig
 type MoveOperator = Callable[[int], None]
 type RingFlipArc = tuple[int, int, list[int]]
+type TMLigandRotation = tuple[int, int, np.ndarray]
+type TMHapticRotation = tuple[int, np.ndarray, np.ndarray]
 type TorsionAngleLibrary = TorsionLibrary
 
 
@@ -111,6 +113,8 @@ class MoveExecutor:
             for ring_flip in rotor_model.ring_flips
         ]
         self.amide_flips = self._build_amide_flips(mol)
+        self.tm_ligand_rotations = self._build_tm_ligand_rotations(mol)
+        self.tm_haptic_rotations = self._build_tm_haptic_rotations(mol)
         self.operators: dict[str, MoveOperator] = {
             "single_rotor": self.apply_single_rotor_move,
             "multi_rotor": self.apply_multi_rotor_move,
@@ -120,6 +124,8 @@ class MoveExecutor:
             "crankshaft": self.apply_crankshaft_move,
             "ring_kic": self.apply_ring_kic_move,
             "amide_flip": self.apply_amide_flip_move,
+            "tm_ligand_rotate": self.apply_tm_ligand_rotate_move,
+            "tm_haptic_rotate": self.apply_tm_haptic_rotate_move,
         }
 
     @staticmethod
@@ -205,6 +211,106 @@ class MoveExecutor:
             moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
             amide_flips.append((c_idx, n_idx, moving_arr))
         return amide_flips
+
+    def _build_tm_ligand_rotations(self, mol: Chem.Mol) -> list[TMLigandRotation]:
+        """Precompute ligand fragments rotatable around metal-donor axes."""
+        rotations: list[TMLigandRotation] = []
+        for atom in mol.GetAtoms():
+            if not _is_metal(atom):
+                continue
+            metal_idx = atom.GetIdx()
+            for neighbor in atom.GetNeighbors():
+                donor_idx = neighbor.GetIdx()
+                if _is_metal(neighbor):
+                    continue
+                moving = self._tm_ligand_fragment(mol, metal_idx, donor_idx)
+                if len(moving) <= 1:
+                    continue
+                moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
+                rotations.append((metal_idx, donor_idx, moving_arr))
+        return rotations
+
+    @staticmethod
+    def _reachable_without(mol: Chem.Mol, start_atoms: set[int], blocked_atoms: set[int]) -> frozenset[int]:
+        """Return non-metal atoms reachable from starts without crossing blocked atoms."""
+        visited: set[int] = set(blocked_atoms)
+        moving: set[int] = set()
+        stack = list(start_atoms)
+        while stack:
+            cur = stack.pop()
+            if cur in visited:
+                continue
+            visited.add(cur)
+            if _is_metal(mol.GetAtomWithIdx(cur)):
+                continue
+            moving.add(cur)
+            for neighbor in mol.GetAtomWithIdx(cur).GetNeighbors():
+                idx = neighbor.GetIdx()
+                if idx in visited:
+                    continue
+                if _is_metal(neighbor):
+                    continue
+                stack.append(idx)
+        return frozenset(moving)
+
+    @staticmethod
+    def _tm_ligand_fragment(mol: Chem.Mol, metal_idx: int, donor_idx: int) -> frozenset[int]:
+        """Return atoms reachable from donor without crossing metal centers."""
+        return MoveExecutor._reachable_without(mol, {donor_idx}, {metal_idx})
+
+    @staticmethod
+    def _metal_edge_count(mol: Chem.Mol, atom_indices: frozenset[int]) -> int:
+        """Count metal-ligand edges touching atom_indices."""
+        atom_set = set(atom_indices)
+        count = 0
+        for idx in atom_indices:
+            atom = mol.GetAtomWithIdx(int(idx))
+            for neighbor in atom.GetNeighbors():
+                if _is_metal(neighbor) and neighbor.GetIdx() not in atom_set:
+                    count += 1
+        return count
+
+    @staticmethod
+    def _connected_components(mol: Chem.Mol, atom_indices: set[int]) -> list[frozenset[int]]:
+        """Return graph components induced by atom_indices."""
+        remaining = set(atom_indices)
+        components: list[frozenset[int]] = []
+        while remaining:
+            start = remaining.pop()
+            component = {start}
+            stack = [start]
+            while stack:
+                cur = stack.pop()
+                for neighbor in mol.GetAtomWithIdx(cur).GetNeighbors():
+                    idx = neighbor.GetIdx()
+                    if idx not in remaining:
+                        continue
+                    remaining.remove(idx)
+                    component.add(idx)
+                    stack.append(idx)
+            components.append(frozenset(component))
+        return components
+
+    def _build_tm_haptic_rotations(self, mol: Chem.Mol) -> list[TMHapticRotation]:
+        """Precompute eta-bound ring-like ligands for rotation about metal-centroid axes."""
+        rotations: list[TMHapticRotation] = []
+        for atom in mol.GetAtoms():
+            if not _is_metal(atom):
+                continue
+            metal_idx = atom.GetIdx()
+            ligand_neighbors = {neighbor.GetIdx() for neighbor in atom.GetNeighbors() if not _is_metal(neighbor)}
+            for component in self._connected_components(mol, ligand_neighbors):
+                if len(component) < 3:
+                    continue
+                moving = self._reachable_without(mol, set(component), {metal_idx})
+                if len(moving) <= len(component):
+                    continue
+                if self._metal_edge_count(mol, moving) != len(component):
+                    continue
+                haptic_arr = np.fromiter(component, dtype=np.int64, count=len(component))
+                moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
+                rotations.append((metal_idx, haptic_arr, moving_arr))
+        return rotations
 
     def sample_angle(self, rotor_idx: int) -> float:
         """Sample a torsion angle for a rotor."""
@@ -329,6 +435,63 @@ class MoveExecutor:
         axis_unit = axis_vec / axis_norm
 
         theta = np.deg2rad(180.0 + np.random.normal(0.0, self.config.torsion_jitter_deg))
+        _rodrigues_rotate(
+            all_pos,
+            moving_arr,
+            axis_origin,
+            float(axis_unit[0]),
+            float(axis_unit[1]),
+            float(axis_unit[2]),
+            theta,
+        )
+        conf.SetPositions(all_pos)
+
+    def apply_tm_ligand_rotate_move(self, conf_id: int) -> None:
+        """Rotate one ligand fragment about a metal-donor axis."""
+        if not self.tm_ligand_rotations:
+            return
+
+        metal_idx, donor_idx, moving_arr = random.choice(self.tm_ligand_rotations)
+        conf = self.mol.GetConformer(conf_id)
+        all_pos = conf.GetPositions()
+        axis_origin = all_pos[metal_idx]
+        axis_vec = all_pos[donor_idx] - axis_origin
+        axis_norm = float(np.linalg.norm(axis_vec))
+        if axis_norm < 1e-6:
+            return
+        axis_unit = axis_vec / axis_norm
+
+        base = random.uniform(30.0, 90.0) * random.choice([-1.0, 1.0])
+        theta = np.deg2rad(base + np.random.normal(0.0, self.config.torsion_jitter_deg))
+        _rodrigues_rotate(
+            all_pos,
+            moving_arr,
+            axis_origin,
+            float(axis_unit[0]),
+            float(axis_unit[1]),
+            float(axis_unit[2]),
+            theta,
+        )
+        conf.SetPositions(all_pos)
+
+    def apply_tm_haptic_rotate_move(self, conf_id: int) -> None:
+        """Rotate eta-bound ligand around metal-ligand-centroid axis."""
+        if not self.tm_haptic_rotations:
+            return
+
+        metal_idx, haptic_arr, moving_arr = random.choice(self.tm_haptic_rotations)
+        conf = self.mol.GetConformer(conf_id)
+        all_pos = conf.GetPositions()
+        centroid = all_pos[haptic_arr].mean(axis=0)
+        axis_origin = all_pos[metal_idx]
+        axis_vec = centroid - axis_origin
+        axis_norm = float(np.linalg.norm(axis_vec))
+        if axis_norm < 1e-6:
+            return
+        axis_unit = axis_vec / axis_norm
+
+        base = random.uniform(30.0, 120.0) * random.choice([-1.0, 1.0])
+        theta = np.deg2rad(base + np.random.normal(0.0, self.config.torsion_jitter_deg))
         _rodrigues_rotate(
             all_pos,
             moving_arr,

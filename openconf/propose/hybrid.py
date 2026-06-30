@@ -10,18 +10,12 @@ from rdkit.Chem import AllChem
 from rdkit.Geometry import rdGeometry
 
 from ..config import ConformerConfig, ConstraintSpec
+from ..constraints import ConstraintModel, add_constraints_to_force_field
 from ..dedupe import prism_dedupe
 from ..exceptions import OpenConfValueError
 from ..perceive import RotorModel, _is_metal, filter_constrained_rotors
 from ..pool import ConformerPool
-from ..relax import (
-    _METAL_LIGAND_DISTANCE_FORCE_CONSTANT,
-    _METAL_LIGAND_DISTANCE_TOLERANCE,
-    _METAL_POSITION_FORCE_CONSTANT,
-    _metal_ligand_reference_distances,
-    get_minimizer,
-    minimize_confs_mmff,
-)
+from ..relax import get_minimizer, minimize_confs_mmff
 from ..torsionlib import TorsionLibrary, get_default_torsion_library
 from ..tuning import (
     get_runtime_tuning,
@@ -52,6 +46,14 @@ __all__ = [
 ]
 
 _TORSION_MOVE_TYPES = frozenset({"single_rotor", "multi_rotor", "correlated", "global_shake"})
+_TM_SEED_MOVE_TYPES = (
+    "tm_haptic_rotate",
+    "tm_ligand_rotate",
+)
+_TM_TORSION_SEED_MOVE_TYPES = (
+    "single_rotor",
+    "correlated",
+)
 
 
 def _resolve_runtime_tuned_config(config: ConformerConfig, rotor_model: RotorModel) -> tuple[ConformerConfig, bool]:
@@ -136,27 +138,32 @@ class HybridProposer:
         self.stats = stats
 
         self._metal_atom_indices: frozenset[int] = frozenset(a.GetIdx() for a in mol.GetAtoms() if _is_metal(a))
-        self._metal_ref_pos: dict[int, np.ndarray] = {}
-        if self._metal_atom_indices and mol.GetNumConformers() > 0:
-            ref_conf = mol.GetConformer(mol.GetConformers()[0].GetId())
-            for idx in self._metal_atom_indices:
-                self._metal_ref_pos[int(idx)] = np.array(ref_conf.GetAtomPosition(int(idx)))
-        self._metal_ligand_ref_distances: dict[tuple[int, int], float] = _metal_ligand_reference_distances(
-            mol,
-            self._metal_atom_indices,
+        metal_constraints = ConstraintModel.from_metal_shell(mol, self._metal_atom_indices)
+        pose_constraints = (
+            ConstraintModel.from_atom_positions(
+                mol,
+                constraint_spec.constrained_atoms,
+                force_constant=constraint_spec.position_force_constant,
+            )
+            if constraint_spec is not None
+            else ConstraintModel.empty()
         )
+        self.constraint_model = metal_constraints.combine(pose_constraints)
+        self._has_position_constraints = bool(self.constraint_model.position_constraints)
 
         self.fast_minimizer = get_minimizer(
             config.minimizer,
             max_iters=config.fast_minimization_iters,
             dielectric=config.fast_dielectric,
             metal_atom_indices=self._metal_atom_indices,
+            constraint_model=self.constraint_model,
         )
         self.full_minimizer = get_minimizer(
             config.minimizer,
             max_iters=config.max_minimization_iters,
             dielectric=config.final_dielectric,
             metal_atom_indices=self._metal_atom_indices,
+            constraint_model=self.constraint_model,
         )
         self.fast_minimizer.prepare(mol)
         self.full_minimizer.prepare(mol)
@@ -173,13 +180,6 @@ class HybridProposer:
         self._staging_mmff_props = AllChem.MMFFGetMoleculeProperties(self._staging_mol, mmffVariant="MMFF94s")
         if self._staging_mmff_props is not None:
             self._staging_mmff_props.SetMMFFDielectricConstant(config.fast_dielectric)
-
-        # snap constrained atoms back exactly after each minimization to eliminate restraint drift
-        self._constrained_ref_pos: dict[int, np.ndarray] = {}
-        if constraint_spec is not None and mol.GetNumConformers() > 0:
-            ref_conf = mol.GetConformer(mol.GetConformers()[0].GetId())
-            for idx in constraint_spec.constrained_atoms:
-                self._constrained_ref_pos[idx] = np.array(ref_conf.GetAtomPosition(idx))
 
         if config.random_seed is not None:
             random.seed(config.random_seed)
@@ -203,6 +203,10 @@ class HybridProposer:
         """Increment an integer stat when instrumentation is enabled."""
         if self.stats is not None:
             self.stats[key] = int(self.stats.get(key, 0)) + amount
+
+    def _increment_move_stat(self, prefix: str, move_type: str) -> None:
+        """Increment move-specific counter when instrumentation is enabled."""
+        self._increment_stat(f"{prefix}_{move_type}")
 
     def _add_time_stat(self, key: str, elapsed_s: float) -> None:
         """Accumulate a timing stat when instrumentation is enabled."""
@@ -319,8 +323,8 @@ class HybridProposer:
 
         return seed_results
 
-    def _reset_constrained_positions(self, mol: Chem.Mol, conf_id: int) -> None:
-        """Snap constrained atoms back to their exact reference coordinates.
+    def _reset_constraint_positions(self, mol: Chem.Mol, conf_id: int) -> None:
+        """Snap position-constrained atoms back to exact reference coordinates.
 
         Called after every constrained minimization to eliminate any residual
         drift that the position restraints did not fully suppress.
@@ -329,48 +333,17 @@ class HybridProposer:
             mol: molecule containing conformer
             conf_id: conformer ID to update in place
         """
-        if not self._constrained_ref_pos:
-            return
-        conf = mol.GetConformer(conf_id)
-        for idx, pos in self._constrained_ref_pos.items():
-            conf.SetAtomPosition(idx, pos.tolist())
-
-    def _reset_metal_positions(self, mol: Chem.Mol, conf_id: int) -> None:
-        """Snap metal centers back to reference coordinates when available.
-
-        Args:
-            mol: molecule containing conformer
-            conf_id: conformer ID to update
-        """
-        if not self._metal_ref_pos:
-            return
-        conf = mol.GetConformer(conf_id)
-        for idx, pos in self._metal_ref_pos.items():
-            conf.SetAtomPosition(idx, pos.tolist())
-
-    def _add_metal_uff_constraints(self, ff) -> None:
-        """Add metal position and reference-shell distance constraints to UFF force field."""
-        for m_idx in self._metal_atom_indices:
-            ff.UFFAddPositionConstraint(int(m_idx), 0.0, _METAL_POSITION_FORCE_CONSTANT)
-        for (m_idx, nb_idx), distance in self._metal_ligand_ref_distances.items():
-            ff.UFFAddDistanceConstraint(
-                int(m_idx),
-                int(nb_idx),
-                False,
-                max(0.0, distance - _METAL_LIGAND_DISTANCE_TOLERANCE),
-                distance + _METAL_LIGAND_DISTANCE_TOLERANCE,
-                _METAL_LIGAND_DISTANCE_FORCE_CONSTANT,
-            )
+        self.constraint_model.reset_positions(mol, conf_id)
 
     def _minimize_uff_single(self, mol: Chem.Mol, conf_id: int, max_its: int) -> float:
         """UFF-minimize one conformer with metal position/distance constraints."""
         ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(conf_id))
         if ff is None:
             return float("inf")
-        self._add_metal_uff_constraints(ff)
+        add_constraints_to_force_field(ff, self.constraint_model, "UFF")
         try:
             ff.Minimize(maxIts=max_its)
-            self._reset_metal_positions(mol, conf_id)
+            self._reset_constraint_positions(mol, conf_id)
             return float(ff.CalcEnergy())
         except (ValueError, RuntimeError):
             return float("inf")
@@ -439,7 +412,6 @@ class HybridProposer:
         Returns:
             Energy in kcal/mol after minimization, or inf on failure
         """
-        assert self.constraint_spec is not None
         minimizer = self.fast_minimizer if use_fast else self.full_minimizer
         props = getattr(minimizer, "_mmff_props", None)
 
@@ -448,15 +420,14 @@ class HybridProposer:
                 ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=int(conf_id))
                 if ff is None:
                     return float("inf")
-                for idx in self.constraint_spec.constrained_atoms:
-                    ff.MMFFAddPositionConstraint(idx, 0.0, self.constraint_spec.position_force_constant)
+                add_constraints_to_force_field(ff, self.constraint_model, "MMFF")
                 ff.Minimize(maxIts=int(minimizer.max_iters))
                 energy = float(ff.CalcEnergy())
             else:
                 ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(conf_id))
                 if ff is None:
                     return float("inf")
-                self._add_metal_uff_constraints(ff)
+                add_constraints_to_force_field(ff, self.constraint_model, "UFF")
                 ff.Minimize(maxIts=int(minimizer.max_iters))
                 energy = float(ff.CalcEnergy())
         except (ValueError, RuntimeError):
@@ -464,8 +435,7 @@ class HybridProposer:
 
         # Snap constrained atoms back to exact reference coordinates, eliminating
         # any residual drift that the position restraints did not fully suppress.
-        self._reset_constrained_positions(mol, conf_id)
-        self._reset_metal_positions(mol, conf_id)
+        self._reset_constraint_positions(mol, conf_id)
         return energy
 
     def _propose_constrained(self, pool: ConformerPool, step: int) -> tuple[int, float, str] | None:
@@ -490,6 +460,103 @@ class HybridProposer:
 
         return (new_conf_id, energy, f"hybrid_{move_type}")
 
+    def _available_tm_seed_move_types(self) -> list[str]:
+        """Return TM-specific move types available for seed augmentation."""
+        availability = {
+            "tm_ligand_rotate": bool(self._moves.tm_ligand_rotations),
+            "tm_haptic_rotate": bool(self._moves.tm_haptic_rotations),
+        }
+        return [move_type for move_type in _TM_SEED_MOVE_TYPES if availability[move_type]]
+
+    def _available_tm_torsion_seed_move_types(self) -> list[str]:
+        """Return torsion move types available for TM seed augmentation."""
+        availability = {
+            "single_rotor": bool(self.rotor_model.rotors),
+            "correlated": bool(self._moves.correlated_rotor_indices),
+        }
+        return [move_type for move_type in _TM_TORSION_SEED_MOVE_TYPES if availability[move_type]]
+
+    def _generate_move_seeds(
+        self,
+        source_conf_id: int,
+        attempts_per_type: int,
+        move_types: list[str],
+        attempt_stat_key: str,
+    ) -> list[tuple[int, float]]:
+        """Generate minimized seeds by copying source conformer and applying moves.
+
+        Args:
+            source_conf_id: conformer ID to copy before applying each move
+            attempts_per_type: number of attempts per move type
+            move_types: move types to apply
+            attempt_stat_key: stat counter incremented for attempted seeds
+
+        Returns:
+            Minimized seed conformer identifiers and energies
+        """
+        if attempts_per_type <= 0 or not move_types:
+            return []
+
+        seeds: list[tuple[int, float]] = []
+        for move_type in move_types:
+            operator = self._move_operators[move_type]
+            for _ in range(attempts_per_type):
+                self._increment_stat(attempt_stat_key)
+                self._increment_move_stat("seed_move_attempted", move_type)
+                new_conf_id = _copy_conformer(self.mol, source_conf_id)
+                operator(new_conf_id)
+
+                if self._clash_checker.has_clash(
+                    new_conf_id,
+                    move_type,
+                    skip_check=self.config.skip_clash_check,
+                ):
+                    self.mol.RemoveConformer(new_conf_id)
+                    continue
+
+                self._increment_stat("n_minimization_calls")
+                energy = self.fast_minimizer.minimize(self.mol, new_conf_id)
+                if np.isfinite(energy):
+                    self._increment_move_stat("seed_move_generated", move_type)
+                    seeds.append((new_conf_id, energy))
+                else:
+                    self.mol.RemoveConformer(new_conf_id)
+        return seeds
+
+    def generate_tm_move_seeds(self, source_conf_id: int, attempts_per_type: int) -> list[tuple[int, float]]:
+        """Generate input-derived TM move seeds using existing move operators.
+
+        Args:
+            source_conf_id: conformer ID to copy before applying each move
+            attempts_per_type: number of attempts per available TM move type
+
+        Returns:
+            Minimized seed conformer identifiers and energies
+        """
+        return self._generate_move_seeds(
+            source_conf_id,
+            attempts_per_type,
+            self._available_tm_seed_move_types(),
+            "n_tm_move_seed_attempts",
+        )
+
+    def generate_tm_torsion_seeds(self, source_conf_id: int, attempts_per_type: int) -> list[tuple[int, float]]:
+        """Generate input-derived ligand-torsion seeds for TM inputs.
+
+        Args:
+            source_conf_id: conformer ID to copy before applying each move
+            attempts_per_type: number of attempts per available torsion move type
+
+        Returns:
+            Minimized seed conformer identifiers and energies
+        """
+        return self._generate_move_seeds(
+            source_conf_id,
+            attempts_per_type,
+            self._available_tm_torsion_seed_move_types(),
+            "n_tm_torsion_seed_attempts",
+        )
+
     def _select_move_type(self, step: int) -> str:
         """Select move type based on probabilities and step count.
 
@@ -502,18 +569,20 @@ class HybridProposer:
         forced = resolve_forced_move(
             step,
             self.config.shake_period,
-            constrained=self.constraint_spec is not None,
+            constrained=self._has_position_constraints,
         )
         if forced is not None:
             return forced
 
         probs = resolve_move_probabilities(
             self._current_move_probs,
-            constrained=self.constraint_spec is not None,
+            constrained=self._has_position_constraints,
             has_ring_flips=bool(self.rotor_model.ring_flips),
             has_crankshaft=bool(self._moves.crankable_rings),
             has_kic=bool(self._moves.macro_kic_data),
             has_amide=bool(self._moves.amide_flips),
+            has_tm_moves=bool(self._moves.tm_ligand_rotations),
+            has_tm_haptic=bool(self._moves.tm_haptic_rotations),
             has_rotors=bool(self.rotor_model.rotors),
         )
 
@@ -608,6 +677,7 @@ class HybridProposer:
             self._move_attempts[move_type] = self._move_attempts.get(move_type, 0.0) + 1.0
             if cid in surviving_ids:
                 self._move_rewards[move_type] = self._move_rewards.get(move_type, 0.0) + 1.0
+                self._increment_move_stat("move_survived_dedupe", move_type)
         self._pending_tags.clear()
 
         if self.config.adaptive_moves:
@@ -672,6 +742,7 @@ class HybridProposer:
         self._increment_stat("n_candidate_attempts")
         move_select_start = time.perf_counter()
         move_type = self._select_move_type(step)
+        self._increment_move_stat("move_selected", move_type)
         self._add_time_stat("move_selection_time_s", time.perf_counter() - move_select_start)
 
         if self._use_torsion_multitry(move_type):
@@ -698,6 +769,7 @@ class HybridProposer:
         self._add_time_stat("clash_check_time_s", time.perf_counter() - clash_start)
 
         self._increment_stat("n_candidates_passed_clash")
+        self._increment_move_stat("move_clash_passed", move_type)
         return (new_conf_id, move_type)
 
     def propose(self, pool: ConformerPool, step: int) -> tuple[int, float, str] | None:
@@ -745,8 +817,8 @@ class HybridProposer:
         Returns:
             Accepted conformer IDs, energies, and sources
         """
-        # Constrained mode: per-conformer MMFF with position restraints.
-        if self.constraint_spec is not None:
+        # Constraint mode: per-conformer minimization with explicit restraints.
+        if self.constraint_spec is not None or self.constraint_model.position_constraints:
             results: list[tuple[int, float, str]] = []
             for i in range(self.config.minimize_batch_size):
                 result = self._propose_constrained(pool, step + i)
@@ -868,8 +940,7 @@ class HybridProposer:
                     if ff is None:
                         energies.append(float("inf"))
                         continue
-                    for idx in self.constraint_spec.constrained_atoms:
-                        ff.MMFFAddPositionConstraint(idx, 0.0, self.constraint_spec.position_force_constant)
+                    add_constraints_to_force_field(ff, self.constraint_model, "MMFF")
                     ff.Minimize(maxIts=int(max_iters))
                     energies.append(float(ff.CalcEnergy()))
                 else:
@@ -877,14 +948,13 @@ class HybridProposer:
                     if ff is None:
                         energies.append(float("inf"))
                         continue
-                    self._add_metal_uff_constraints(ff)
+                    add_constraints_to_force_field(ff, self.constraint_model, "UFF")
                     ff.Minimize(maxIts=int(max_iters))
                     energies.append(float(ff.CalcEnergy()))
             except (ValueError, RuntimeError):
                 energies.append(float("inf"))
                 continue
-            self._reset_constrained_positions(mol, cid)
-            self._reset_metal_positions(mol, cid)
+            self._reset_constraint_positions(mol, cid)
 
         return energies
 
@@ -909,6 +979,8 @@ def run_hybrid_generation(
     total_start = time.perf_counter()
     stats = new_generation_stats() if config.collect_stats else {}
     constraint_spec = config.constraint_spec
+    has_metal_input = any(_is_metal(atom) for atom in mol.GetAtoms()) and mol.GetNumConformers() > 0
+    use_input_seed = constraint_spec is not None or has_metal_input
 
     # Filter rotors before building the proposer so _rotor_angles is computed
     # only for free rotors.
@@ -925,9 +997,11 @@ def run_hybrid_generation(
             prune_rms_thresh=_resolve_seed_prune_rms_thresh(mol, rotor_model, effective_config),
             reason="seed_pose",
         )
-        if constraint_spec is not None
+        if use_input_seed
         else resolve_seed_plan(mol, rotor_model, effective_config)
     )
+    if use_input_seed and constraint_spec is None:
+        seed_plan = dataclasses.replace(seed_plan, reason="seed_input_metal")
     populate_effective_config_stats(
         stats,
         config=effective_config,
@@ -943,15 +1017,18 @@ def run_hybrid_generation(
     pool = ConformerPool(mol, effective_config)
 
     seed_start = time.perf_counter()
-    if constraint_spec is not None:
+    if use_input_seed:
         existing_ids = [c.GetId() for c in mol.GetConformers()]
         if not existing_ids:
             raise OpenConfValueError(
-                "Constrained conformer generation requires a starting conformer. "
-                "Use generate_conformers_from_pose to supply one."
+                "Input-seeded conformer generation requires a starting conformer. Supply a molecule with coordinates."
             )
         seeds = proposer.seed_from_conformer(existing_ids[0])
-        seed_source = "seed_pose"
+        if not seeds and has_metal_input and constraint_spec is None:
+            seeds = [(existing_ids[0], float("inf"))]
+            if stats:
+                stats["n_unminimized_input_seeds"] = 1
+        seed_source = "seed_pose" if constraint_spec is not None else "seed_input"
         input_positions = None
     else:
         input_positions = mol.GetConformers()[0].GetPositions().copy() if mol.GetNumConformers() > 0 else None
@@ -962,7 +1039,8 @@ def run_hybrid_generation(
         stats["n_seed_conformers"] = len(seeds)
 
     for conf_id, energy in seeds:
-        pool.insert(conf_id, energy, source=seed_source)
+        tags = {"protected": True} if use_input_seed else None
+        pool.insert(conf_id, energy, source=seed_source, tags=tags)
 
     if input_positions is not None:
         for conf_id, energy in proposer.seed_from_input_conformer(input_positions):
@@ -970,38 +1048,67 @@ def run_hybrid_generation(
 
     if effective_config.use_low_mode_following and seeds:
         lm_ff_props = getattr(proposer.fast_minimizer, "_mmff_props", None)
-        if lm_ff_props is not None:
-            lm_start = time.perf_counter()
-            n_lm_accepted = 0
-            source_seeds = sorted(seeds, key=lambda x: x[1])[: effective_config.low_mode_n_source_seeds]
-            # Materialize the low-mode children for every source seed before any
-            # pool insertion. The source seeds are themselves pool members, so
-            # inserting one seed's children could evict a later, not-yet-processed
-            # source seed and leave generate_low_mode_seeds referencing a freed
-            # conformer (Bad Conformer Id, or a hard abort during MMFF setup).
-            lm_children: list[tuple[int, float]] = []
-            for seed_conf_id, _ in source_seeds:
-                lm_children.extend(
-                    generate_low_mode_seeds(
-                        mol,
-                        lm_ff_props,
-                        seed_conf_id,
-                        proposer.fast_minimizer,
-                        eigenvalue_threshold=effective_config.low_mode_eigenvalue_threshold,
-                        max_modes=effective_config.low_mode_max_modes,
-                        scan_step_size=effective_config.low_mode_scan_step_size,
-                        scan_energy_threshold=effective_config.low_mode_scan_energy_threshold,
-                        scan_max_steps=effective_config.low_mode_scan_max_steps,
-                    )
+        lm_start = time.perf_counter()
+        n_lm_accepted = 0
+        source_seeds = sorted(seeds, key=lambda x: x[1])[: effective_config.low_mode_n_source_seeds]
+        # Materialize the low-mode children for every source seed before any
+        # pool insertion. The source seeds are themselves pool members, so
+        # inserting one seed's children could evict a later, not-yet-processed
+        # source seed and leave generate_low_mode_seeds referencing a freed
+        # conformer (Bad Conformer Id, or a hard abort during MMFF setup).
+        lm_children: list[tuple[int, float]] = []
+        for seed_conf_id, _ in source_seeds:
+            lm_children.extend(
+                generate_low_mode_seeds(
+                    mol,
+                    lm_ff_props,
+                    seed_conf_id,
+                    proposer.fast_minimizer,
+                    eigenvalue_threshold=effective_config.low_mode_eigenvalue_threshold,
+                    max_modes=effective_config.low_mode_max_modes,
+                    scan_step_size=effective_config.low_mode_scan_step_size,
+                    scan_energy_threshold=effective_config.low_mode_scan_energy_threshold,
+                    scan_max_steps=effective_config.low_mode_scan_max_steps,
+                    constraints=proposer.constraint_model,
                 )
-            for lm_conf_id, lm_energy in lm_children:
-                if pool.insert(lm_conf_id, lm_energy, source="low_mode"):
-                    n_lm_accepted += 1
-                else:
-                    mol.RemoveConformer(lm_conf_id)
-            if stats:
-                stats["low_mode_time_s"] = time.perf_counter() - lm_start
-                stats["n_low_mode_seeds"] = n_lm_accepted
+            )
+        for lm_conf_id, lm_energy in lm_children:
+            if pool.insert(lm_conf_id, lm_energy, source="low_mode"):
+                n_lm_accepted += 1
+            else:
+                mol.RemoveConformer(lm_conf_id)
+        if stats:
+            stats["low_mode_time_s"] = time.perf_counter() - lm_start
+            stats["n_low_mode_seeds"] = n_lm_accepted
+
+    if has_metal_input and constraint_spec is None and effective_config.tm_seed_move_attempts > 0 and seeds:
+        tm_seed_start = time.perf_counter()
+        n_tm_move_accepted = 0
+        tm_move_seeds = proposer.generate_tm_move_seeds(seeds[0][0], effective_config.tm_seed_move_attempts)
+        for tm_conf_id, tm_energy in tm_move_seeds:
+            if pool.insert(tm_conf_id, tm_energy, source="seed_tm_move"):
+                n_tm_move_accepted += 1
+            else:
+                mol.RemoveConformer(tm_conf_id)
+        if stats:
+            stats["tm_move_seed_time_s"] = time.perf_counter() - tm_seed_start
+            stats["n_tm_move_seeds"] = n_tm_move_accepted
+
+    if has_metal_input and constraint_spec is None and effective_config.tm_seed_torsion_attempts > 0 and seeds:
+        tm_torsion_seed_start = time.perf_counter()
+        n_tm_torsion_accepted = 0
+        tm_torsion_seeds = proposer.generate_tm_torsion_seeds(
+            seeds[0][0],
+            effective_config.tm_seed_torsion_attempts,
+        )
+        for tm_conf_id, tm_energy in tm_torsion_seeds:
+            if pool.insert(tm_conf_id, tm_energy, source="seed_tm_torsion"):
+                n_tm_torsion_accepted += 1
+            else:
+                mol.RemoveConformer(tm_conf_id)
+        if stats:
+            stats["tm_torsion_seed_time_s"] = time.perf_counter() - tm_torsion_seed_start
+            stats["n_tm_torsion_seeds"] = n_tm_torsion_accepted
 
     batch_size = effective_config.minimize_batch_size
     step = 0
@@ -1030,6 +1137,7 @@ def run_hybrid_generation(
                 if stats:
                     stats["n_pool_accepts"] = int(stats["n_pool_accepts"]) + 1
                 move_type = source.removeprefix("hybrid_") if source.startswith("hybrid_") else source
+                proposer._increment_move_stat("move_pool_accepted", move_type)
                 proposer.record_accepted(conf_id, move_type)
             else:
                 if stats:
