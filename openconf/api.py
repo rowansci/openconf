@@ -54,7 +54,7 @@ def _with_auto_transition_metal_sampling(
         move_probs[move_type] = move_probs.get(move_type, 0.0) + total * _AUTO_TM_MOVE_BUDGET * weight
 
     updates: dict[str, object] = {"move_probs": move_probs}
-    if has_metal_input and config.tm_seed_move_attempts == 0 and config.tm_seed_torsion_attempts == 0:
+    if has_metal_input and config.tm_seed_move_attempts == 0:
         updates["tm_seed_move_attempts"] = 2
     return dataclasses.replace(config, **updates)
 

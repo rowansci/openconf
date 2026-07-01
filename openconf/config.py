@@ -249,10 +249,6 @@ class ConformerConfig:
             coordinates. This supplements the protected input seed with
             early metal-ligand rotation and haptic-rotation variants while
             reusing the normal move and minimization machinery.
-        tm_seed_torsion_attempts: number of seed conformers to attempt per
-            available torsion move type for TM inputs. This samples ligand-arm
-            torsion states around the protected coordination geometry before
-            the MC walk starts.
     """
 
     max_out: int = 200
@@ -303,7 +299,6 @@ class ConformerConfig:
     low_mode_scan_max_steps: int = 10
     low_mode_n_source_seeds: int = 1
     tm_seed_move_attempts: int = 0
-    tm_seed_torsion_attempts: int = 0
 
     def __post_init__(self) -> None:
         _require_at_least("max_out", self.max_out, 1)
@@ -336,7 +331,6 @@ class ConformerConfig:
         _require_at_least("low_mode_scan_max_steps", self.low_mode_scan_max_steps, 1)
         _require_at_least("low_mode_n_source_seeds", self.low_mode_n_source_seeds, 1)
         _require_at_least("tm_seed_move_attempts", self.tm_seed_move_attempts, 0)
-        _require_at_least("tm_seed_torsion_attempts", self.tm_seed_torsion_attempts, 0)
         _validate_move_probs(self.move_probs)
 
         if self.minimizer != "rdkit_mmff":
@@ -524,7 +518,6 @@ def preset_config(preset: ConformerPreset) -> ConformerConfig:
                 low_mode_scan_max_steps=4,
                 low_mode_n_source_seeds=1,
                 tm_seed_move_attempts=2,
-                tm_seed_torsion_attempts=0,
                 seed_n_per_rotor=1,
                 seed_prune_rms_thresh=1.5,
                 prism_max_deviation=0.005,

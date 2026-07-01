@@ -50,10 +50,6 @@ _TM_SEED_MOVE_TYPES = (
     "tm_haptic_rotate",
     "tm_ligand_rotate",
 )
-_TM_TORSION_SEED_MOVE_TYPES = (
-    "single_rotor",
-    "correlated",
-)
 
 
 def _resolve_runtime_tuned_config(config: ConformerConfig, rotor_model: RotorModel) -> tuple[ConformerConfig, bool]:
@@ -468,14 +464,6 @@ class HybridProposer:
         }
         return [move_type for move_type in _TM_SEED_MOVE_TYPES if availability[move_type]]
 
-    def _available_tm_torsion_seed_move_types(self) -> list[str]:
-        """Return torsion move types available for TM seed augmentation."""
-        availability = {
-            "single_rotor": bool(self.rotor_model.rotors),
-            "correlated": bool(self._moves.correlated_rotor_indices),
-        }
-        return [move_type for move_type in _TM_TORSION_SEED_MOVE_TYPES if availability[move_type]]
-
     def _generate_move_seeds(
         self,
         source_conf_id: int,
@@ -538,23 +526,6 @@ class HybridProposer:
             attempts_per_type,
             self._available_tm_seed_move_types(),
             "n_tm_move_seed_attempts",
-        )
-
-    def generate_tm_torsion_seeds(self, source_conf_id: int, attempts_per_type: int) -> list[tuple[int, float]]:
-        """Generate input-derived ligand-torsion seeds for TM inputs.
-
-        Args:
-            source_conf_id: conformer ID to copy before applying each move
-            attempts_per_type: number of attempts per available torsion move type
-
-        Returns:
-            Minimized seed conformer identifiers and energies
-        """
-        return self._generate_move_seeds(
-            source_conf_id,
-            attempts_per_type,
-            self._available_tm_torsion_seed_move_types(),
-            "n_tm_torsion_seed_attempts",
         )
 
     def _select_move_type(self, step: int) -> str:
@@ -1093,22 +1064,6 @@ def run_hybrid_generation(
         if stats:
             stats["tm_move_seed_time_s"] = time.perf_counter() - tm_seed_start
             stats["n_tm_move_seeds"] = n_tm_move_accepted
-
-    if has_metal_input and constraint_spec is None and effective_config.tm_seed_torsion_attempts > 0 and seeds:
-        tm_torsion_seed_start = time.perf_counter()
-        n_tm_torsion_accepted = 0
-        tm_torsion_seeds = proposer.generate_tm_torsion_seeds(
-            seeds[0][0],
-            effective_config.tm_seed_torsion_attempts,
-        )
-        for tm_conf_id, tm_energy in tm_torsion_seeds:
-            if pool.insert(tm_conf_id, tm_energy, source="seed_tm_torsion"):
-                n_tm_torsion_accepted += 1
-            else:
-                mol.RemoveConformer(tm_conf_id)
-        if stats:
-            stats["tm_torsion_seed_time_s"] = time.perf_counter() - tm_torsion_seed_start
-            stats["n_tm_torsion_seeds"] = n_tm_torsion_accepted
 
     batch_size = effective_config.minimize_batch_size
     step = 0

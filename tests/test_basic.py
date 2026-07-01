@@ -233,7 +233,6 @@ def test_transition_metal_preset_config_values():
     assert config.minimize_batch_size == 1
     assert config.prism_max_deviation == pytest.approx(0.005)
     assert config.tm_seed_move_attempts == 2
-    assert config.tm_seed_torsion_attempts == 0
     assert config.final_select == "diverse"
     assert config.move_probs["tm_ligand_rotate"] == pytest.approx(0.25)
     assert config.move_probs["tm_haptic_rotate"] == pytest.approx(0.1)
@@ -271,15 +270,6 @@ def test_auto_transition_metal_sampling_respects_opt_out_and_existing_tm_budget(
     existing_tm = ConformerConfig(move_probs={"single_rotor": 0.5, "tm_ligand_rotate": 0.5})
     assert _with_auto_transition_metal_sampling(existing_tm, has_metal=True, has_metal_input=True) is existing_tm
     assert _with_auto_transition_metal_sampling(existing_tm, has_metal=False, has_metal_input=False) is existing_tm
-
-    torsion_seed_config = ConformerConfig(move_probs={"single_rotor": 1.0}, tm_seed_torsion_attempts=1)
-    resolved_torsion_seed_config = _with_auto_transition_metal_sampling(
-        torsion_seed_config,
-        has_metal=True,
-        has_metal_input=True,
-    )
-    assert resolved_torsion_seed_config.tm_seed_move_attempts == 0
-    assert resolved_torsion_seed_config.tm_seed_torsion_attempts == 1
 
 
 def test_generate_candidate_uses_operator_table_and_clash_checker(monkeypatch):
@@ -1600,36 +1590,4 @@ def test_xyz_metal_tm_move_seeds_are_generated():
     assert ensemble.generation_stats["seed_plan_reason"] == "seed_input_metal"
     assert int(ensemble.generation_stats["n_tm_move_seed_attempts"]) > 0
     assert int(ensemble.generation_stats["n_tm_move_seeds"]) > 0
-    assert ensemble.n_conformers > 1
-
-
-def test_xyz_metal_tm_torsion_seeds_are_generated():
-    """TM torsion seeding should augment input-seeded metal generation."""
-    from pathlib import Path
-
-    from openconf import ConformerConfig, generate_conformers
-    from openconf.io import read_xyz
-
-    mol = read_xyz(Path(__file__).resolve().parent / "data" / "hydrocupration_ts.xyz")
-    config = ConformerConfig(
-        max_out=8,
-        n_steps=0,
-        n_seeds=1,
-        random_seed=2,
-        num_threads=1,
-        skip_clash_check=True,
-        seed_minimization_iters=5,
-        fast_minimization_iters=5,
-        use_low_mode_following=False,
-        tm_seed_move_attempts=0,
-        tm_seed_torsion_attempts=1,
-        energy_window_kcal=100.0,
-        collect_stats=True,
-    )
-
-    ensemble = generate_conformers(mol, config=config, add_hs=False)
-
-    assert ensemble.generation_stats["seed_plan_reason"] == "seed_input_metal"
-    assert int(ensemble.generation_stats["n_tm_torsion_seed_attempts"]) > 0
-    assert int(ensemble.generation_stats["n_tm_torsion_seeds"]) > 0
     assert ensemble.n_conformers > 1
