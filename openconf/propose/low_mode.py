@@ -12,6 +12,8 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from ..constraints import ConstraintModel, add_constraints_to_force_field
+
 if TYPE_CHECKING:
     from ..relax import Minimizer
 
@@ -23,13 +25,46 @@ _DEFAULT_SCAN_ENERGY_THRESHOLD: float = 2390.0  # kcal/mol ≈ 10 000 kJ/mol (pa
 _DEFAULT_SCAN_MAX_STEPS: int = 10
 
 
+def _force_field(
+    mol: Chem.Mol,
+    ff_props: object | None,
+    conf_id: int,
+    constraints: ConstraintModel,
+) -> object | None:
+    """Build constrained MMFF or UFF force field.
+
+    Args:
+        mol: molecule containing conformer
+        ff_props: MMFF properties, or None to use UFF
+        conf_id: conformer ID
+        constraints: geometry constraints to apply
+
+    Returns:
+        RDKit force field object, or None when setup fails
+    """
+    try:
+        if ff_props is not None:
+            ff = AllChem.MMFFGetMoleculeForceField(mol, ff_props, confId=int(conf_id))
+            family = "MMFF"
+        else:
+            ff = AllChem.UFFGetMoleculeForceField(mol, confId=int(conf_id))
+            family = "UFF"
+        if ff is None:
+            return None
+        add_constraints_to_force_field(ff, constraints, family)
+        return ff
+    except (RuntimeError, ValueError):
+        return None
+
+
 def _compute_hessian(
     mol: Chem.Mol,
-    ff_props: object,
+    ff_props: object | None,
     conf_id: int,
     step: float = _DEFAULT_FD_STEP,
+    constraints: ConstraintModel | None = None,
 ) -> np.ndarray:
-    """Compute numerical Hessian via central differences of MMFF gradients.
+    """Compute numerical Hessian via central differences of force gradients.
 
     Perturbs each Cartesian coordinate of each atom by ±step, evaluates
     the MMFF gradient at each displaced geometry, and assembles the
@@ -37,16 +72,18 @@ def _compute_hessian(
 
     Args:
         mol: molecule containing the conformer
-        ff_props: pre-prepared MMFFMoleculeProperties used to build force fields
+        ff_props: pre-prepared MMFFMoleculeProperties, or None to use UFF
             at displaced geometries
         conf_id: ID of the conformer at which to evaluate the Hessian;
             should be at or near a local minimum for meaningful low modes
         step: finite difference displacement in Å
+        constraints: geometry constraints to apply during gradient evaluation
 
     Returns:
         Symmetric 3N×3N Hessian matrix in kcal/mol/Å²
     """
     conf = mol.GetConformer(conf_id)
+    constraints = constraints or ConstraintModel.empty()
     n_atoms = mol.GetNumAtoms()
     n_dof = 3 * n_atoms
     pos0 = conf.GetPositions().copy()
@@ -60,7 +97,7 @@ def _compute_hessian(
         fwd = original.copy()
         fwd[coord_i] += step
         conf.SetAtomPosition(atom_i, fwd.tolist())
-        ff_fwd = AllChem.MMFFGetMoleculeForceField(mol, ff_props, confId=conf_id)
+        ff_fwd = _force_field(mol, ff_props, conf_id, constraints)
         if ff_fwd is None:
             conf.SetAtomPosition(atom_i, original.tolist())
             continue
@@ -69,7 +106,7 @@ def _compute_hessian(
         bwd = original.copy()
         bwd[coord_i] -= step
         conf.SetAtomPosition(atom_i, bwd.tolist())
-        ff_bwd = AllChem.MMFFGetMoleculeForceField(mol, ff_props, confId=conf_id)
+        ff_bwd = _force_field(mol, ff_props, conf_id, constraints)
         if ff_bwd is None:
             conf.SetAtomPosition(atom_i, original.tolist())
             continue
@@ -131,9 +168,9 @@ def _build_vibrational_basis(mol: Chem.Mol, conf_id: int) -> np.ndarray:
     for k in range(n_atoms):
         sqrt_mk = sqrt_masses[k]
         rx, ry, rz = r[k]
-        rot[0, 3 * k : 3 * k + 3] = sqrt_mk * np.array([0.0, rz, -ry])   # r x e_x
-        rot[1, 3 * k : 3 * k + 3] = sqrt_mk * np.array([-rz, 0.0, rx])   # r x e_y
-        rot[2, 3 * k : 3 * k + 3] = sqrt_mk * np.array([ry, -rx, 0.0])   # r x e_z
+        rot[0, 3 * k : 3 * k + 3] = sqrt_mk * np.array([0.0, rz, -ry])  # r x e_x
+        rot[1, 3 * k : 3 * k + 3] = sqrt_mk * np.array([-rz, 0.0, rx])  # r x e_y
+        rot[2, 3 * k : 3 * k + 3] = sqrt_mk * np.array([ry, -rx, 0.0])  # r x e_z
 
     # Threshold scales with sqrt(total_mass) since mass-weighted norms grow
     # as sqrt(M_total * r^2). Drops near-zero vectors for linear molecules.
@@ -191,8 +228,8 @@ def _select_low_modes(
 
     # d_vib @ eigenvectors: mass-weighted eigenvectors L_mw
     # Unweight to Cartesian: L_cart[i] = L_mw[i] / sqrt(m_i)
-    vecs_mw = d_vib @ eigenvectors          # (3N, n_vib) in mass-weighted space
-    vecs = vecs_mw / sqrt_masses[:, None]   # (3N, n_vib) in Cartesian space
+    vecs_mw = d_vib @ eigenvectors  # (3N, n_vib) in mass-weighted space
+    vecs = vecs_mw / sqrt_masses[:, None]  # (3N, n_vib) in Cartesian space
 
     # Renormalise: mass-unweighting changes column norms
     col_norms = np.linalg.norm(vecs, axis=0, keepdims=True)
@@ -207,12 +244,13 @@ def _select_low_modes(
 
 def _scan_along_mode(
     mol: Chem.Mol,
-    ff_props: object,
+    ff_props: object | None,
     start_conf_id: int,
     direction: np.ndarray,
     step_size: float,
     energy_threshold: float,
     max_steps: int,
+    constraints: ConstraintModel | None = None,
 ) -> np.ndarray:
     """Scan from a minimized conformer along a unit direction vector.
 
@@ -226,7 +264,7 @@ def _scan_along_mode(
 
     Args:
         mol: molecule to scan; receives a temporary conformer during the call
-        ff_props: pre-prepared MMFFMoleculeProperties for energy evaluation
+        ff_props: pre-prepared MMFFMoleculeProperties, or None to use UFF
         start_conf_id: ID of the minimized starting conformer
         direction: unit displacement direction of shape (n_atoms, 3) in Å;
             each step moves the geometry by step_size × direction in 3N space
@@ -234,15 +272,17 @@ def _scan_along_mode(
         energy_threshold: maximum allowed per-step energy increase (kcal/mol);
             scanning stops when ΔE in a single step exceeds this value
         max_steps: maximum number of steps regardless of energy criterion
+        constraints: geometry constraints to apply during energy evaluation
 
     Returns:
         Positions of shape (n_atoms, 3) at the last accepted scan point
     """
     n_atoms = mol.GetNumAtoms()
     src_conf = mol.GetConformer(start_conf_id)
+    constraints = constraints or ConstraintModel.empty()
     start_pos = src_conf.GetPositions().copy()
 
-    ff0 = AllChem.MMFFGetMoleculeForceField(mol, ff_props, confId=start_conf_id)
+    ff0 = _force_field(mol, ff_props, start_conf_id, constraints)
     if ff0 is None:
         return start_pos
     prev_energy = float(ff0.CalcEnergy())
@@ -260,7 +300,7 @@ def _scan_along_mode(
             for i in range(n_atoms):
                 working.SetAtomPosition(i, current_pos[i].tolist())
 
-            ff = AllChem.MMFFGetMoleculeForceField(mol, ff_props, confId=working_id)
+            ff = _force_field(mol, ff_props, working_id, constraints)
             if ff is None:
                 break
 
@@ -278,7 +318,7 @@ def _scan_along_mode(
 
 def generate_low_mode_seeds(
     mol: Chem.Mol,
-    ff_props: object,
+    ff_props: object | None,
     conf_id: int,
     minimizer: "Minimizer",
     *,
@@ -288,10 +328,11 @@ def generate_low_mode_seeds(
     scan_energy_threshold: float = _DEFAULT_SCAN_ENERGY_THRESHOLD,
     scan_max_steps: int = _DEFAULT_SCAN_MAX_STEPS,
     fd_step: float = _DEFAULT_FD_STEP,
+    constraints: ConstraintModel | None = None,
 ) -> list[tuple[int, float]]:
     """Generate conformers by scanning along low-frequency Hessian eigenvectors.
 
-    Numerically evaluates the MMFF Hessian at the given minimized conformer,
+    Numerically evaluates the MMFF or UFF Hessian at the given minimized conformer,
     identifies eigenvectors with eigenvalues below eigenvalue_threshold (soft
     conformational modes), and for each such mode scans in both the positive and
     negative directions using discrete steps of scan_step_size Å. Scanning along
@@ -314,7 +355,7 @@ def generate_low_mode_seeds(
 
     Args:
         mol: molecule containing the conformer; receives new conformers in place
-        ff_props: pre-prepared MMFFMoleculeProperties used to build force fields
+        ff_props: pre-prepared MMFFMoleculeProperties, or None to use UFF
         conf_id: ID of a minimized conformer to compute modes from
         minimizer: minimizer applied to each scan endpoint
         eigenvalue_threshold: Hessian eigenvalue cutoff in mass-weighted
@@ -331,6 +372,8 @@ def generate_low_mode_seeds(
         scan_max_steps: upper bound on scan steps per direction regardless of
             the energy criterion; acts as a safety cap on total displacement
         fd_step: finite difference step size for numerical Hessian in Å
+        constraints: geometry constraints to apply during Hessian and scan
+            energy evaluation
 
     Returns:
         Pairs of (conformer_id, energy_kcal_mol) for each successfully
@@ -338,7 +381,8 @@ def generate_low_mode_seeds(
         senses); empty when no low modes satisfy the threshold or all
         minimizations fail
     """
-    hessian = _compute_hessian(mol, ff_props, conf_id, fd_step)
+    constraints = constraints or ConstraintModel.empty()
+    hessian = _compute_hessian(mol, ff_props, conf_id, fd_step, constraints=constraints)
     low_vecs = _select_low_modes(hessian, mol, conf_id, eigenvalue_threshold, max_modes)
     if low_vecs.shape[1] == 0:
         return []
@@ -359,6 +403,7 @@ def generate_low_mode_seeds(
                 scan_step_size,
                 scan_energy_threshold,
                 scan_max_steps,
+                constraints=constraints,
             )
 
             if np.allclose(final_pos, start_pos, atol=1e-8):

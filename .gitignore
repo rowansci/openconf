@@ -185,6 +185,13 @@ memory/
 static/iridium/*
 scripts/
 benchmarks/
+datasets/
 GDB20*
+TMCONF40/
+TMCONF5/
+TMCONF_Econf.ods
+tmconf5.tar
 
 docs/
+
+TM_CONFORMER_BENCHMARK.md

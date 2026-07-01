@@ -239,6 +239,59 @@ def test_filter_constrained_rotors_free_side_reoriented():
         )
 
 
+def test_filtered_constrained_torsions_do_not_translate_core():
+    """Filtered torsion moves leave constrained atom coordinates unchanged."""
+    from rdkit.Chem import rdMolTransforms
+
+    from openconf import build_rotor_model, filter_constrained_rotors, prepare_molecule
+
+    mol = prepare_molecule(Chem.MolFromSmiles("CCCCc1ccccc1"))
+    AllChem.EmbedMolecule(mol, randomSeed=0)
+    constrained = frozenset(range(4, 10))  # benzene ring atoms
+    filtered = filter_constrained_rotors(build_rotor_model(mol), constrained)
+
+    assert filtered.rotors
+    constrained_indices = sorted(constrained)
+    for rotor in filtered.rotors:
+        trial = Chem.Mol(mol)
+        conf = trial.GetConformer(0)
+        before = conf.GetPositions().copy()
+        angle = rdMolTransforms.GetDihedralDeg(conf, *rotor.dihedral_atoms)
+
+        rdMolTransforms.SetDihedralDeg(conf, *rotor.dihedral_atoms, angle + 73.0)
+
+        after = conf.GetPositions()
+        assert np.allclose(after[constrained_indices], before[constrained_indices], atol=1e-8), (
+            f"Rotor {rotor.atom_idxs} translated constrained atoms"
+        )
+
+
+def test_boundary_constrained_torsion_moves_only_free_fragment():
+    """Boundary torsion with constrained axis atoms moves free distal fragment."""
+    from rdkit.Chem import rdMolTransforms
+
+    from openconf import build_rotor_model, filter_constrained_rotors, prepare_molecule
+
+    mol = prepare_molecule(Chem.MolFromSmiles("CCCCc1ccccc1"))
+    AllChem.EmbedMolecule(mol, randomSeed=0)
+    constrained = frozenset([3, 4, 5, 6, 7, 8, 9])
+    filtered = filter_constrained_rotors(build_rotor_model(mol), constrained)
+    boundary_rotor = next((rotor for rotor in filtered.rotors if set(rotor.atom_idxs) == {3, 4}), None)
+
+    assert boundary_rotor is not None
+    conf = mol.GetConformer(0)
+    before = conf.GetPositions().copy()
+    angle = rdMolTransforms.GetDihedralDeg(conf, *boundary_rotor.dihedral_atoms)
+
+    rdMolTransforms.SetDihedralDeg(conf, *boundary_rotor.dihedral_atoms, angle + 90.0)
+
+    after = conf.GetPositions()
+    constrained_indices = sorted(constrained)
+    free_chain_indices = [0, 1, 2]
+    assert np.allclose(after[constrained_indices], before[constrained_indices], atol=1e-8)
+    assert max(float(np.linalg.norm(after[idx] - before[idx])) for idx in free_chain_indices) > 0.05
+
+
 def test_filter_constrained_rotors_no_constrained_atoms():
     """Empty constraint set leaves the rotor model unchanged."""
     from openconf import build_rotor_model, filter_constrained_rotors, prepare_molecule

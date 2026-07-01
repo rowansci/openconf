@@ -11,6 +11,7 @@ from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_con
 from .exceptions import OpenConfRuntimeError, OpenConfValueError
 from .perceive import (
     StereoSignature,
+    _is_metal,
     build_rotor_model,
     conformer_matches_specified_stereochemistry,
     prepare_molecule,
@@ -24,6 +25,38 @@ from .tuning import get_runtime_tuning
 
 # Gas constant in kcal/(mol·K); kT at 298.15 K ≈ 0.5924 kcal/mol.
 _R_KCAL_PER_MOL_K = 1.987204e-3
+_AUTO_TM_MOVE_BUDGET = 0.35
+_AUTO_TM_MOVE_WEIGHTS = {
+    "tm_ligand_rotate": 0.75,
+    "tm_haptic_rotate": 0.25,
+}
+_TM_MOVE_TYPES = frozenset(_AUTO_TM_MOVE_WEIGHTS)
+
+
+def _has_transition_metal_move_budget(config: ConformerConfig) -> bool:
+    """Return whether config already assigns positive budget to TM moves."""
+    return any(config.move_probs.get(move_type, 0.0) > 0.0 for move_type in _TM_MOVE_TYPES)
+
+
+def _with_auto_transition_metal_sampling(
+    config: ConformerConfig,
+    *,
+    has_metal: bool,
+    has_metal_input: bool,
+) -> ConformerConfig:
+    """Return config with automatic TM sampling overlay when appropriate."""
+    if not has_metal or not config.auto_transition_metal_moves or _has_transition_metal_move_budget(config):
+        return config
+
+    total = sum(config.move_probs.values())
+    move_probs = {move_type: prob * (1.0 - _AUTO_TM_MOVE_BUDGET) for move_type, prob in config.move_probs.items()}
+    for move_type, weight in _AUTO_TM_MOVE_WEIGHTS.items():
+        move_probs[move_type] = move_probs.get(move_type, 0.0) + total * _AUTO_TM_MOVE_BUDGET * weight
+
+    updates: dict[str, object] = {"move_probs": move_probs}
+    if has_metal_input and config.tm_seed_move_attempts == 0:
+        updates["tm_seed_move_attempts"] = 2
+    return dataclasses.replace(config, **updates)
 
 
 def _filter_stereochemistry_consistent_conformers(
@@ -355,8 +388,9 @@ def generate_conformers(
         method: generation method; `"hybrid"` is the default and recommended
         config: configuration options; defaults are used when omitted
         preset: named use-case preset; one of `"rapid"`,
-            `"ensemble"`, `"spectroscopic"`, `"docking"`. Mutually
-            exclusive with *config*; raises ValueError if both are supplied.
+            `"ensemble"`, `"spectroscopic"`, `"docking"`, `"analogue"`,
+            `"macrocycle"`, or `"transition_metal"`. Mutually exclusive with
+            *config*; raises ValueError if both are supplied.
         torsion_library: torsion library override; when omitted, uses
             the bundled cached CrystalFF-derived library.
         add_hs: add explicit hydrogens before embedding; set to
@@ -397,8 +431,14 @@ def generate_conformers(
 
     if method == "hybrid":
         low_flex_tuning = get_runtime_tuning().low_flex_path
+        has_metal = any(_is_metal(atom) for atom in mol.GetAtoms())
+        has_metal_input = has_metal and mol.GetNumConformers() > 0
+        config = _with_auto_transition_metal_sampling(config, has_metal=has_metal, has_metal_input=has_metal_input)
+        has_tm_sampling_profile = has_metal and config.move_probs.get("tm_ligand_rotate", 0.0) > 0.0
         use_low_flex_path = (
             config.constraint_spec is None
+            and not has_metal_input
+            and not has_tm_sampling_profile
             and rotor_model.n_rotatable <= low_flex_tuning.max_rotatable
             and (low_flex_tuning.allow_macrocycles or not rotor_model.ring_info.get("has_macrocycle"))
             and (low_flex_tuning.allow_rings or not rotor_model.ring_info.get("ring_sizes"))
