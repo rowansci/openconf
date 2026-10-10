@@ -368,6 +368,22 @@ class ConformerPool:
         """Check if deduplication should be run."""
         return self.config.dedupe_rmsd_threshold is not None and self._steps_since_dedupe >= self.config.dedupe_period
 
+    def remove_many(self, conf_ids: list[int]) -> None:
+        """Remove conformers and refresh pool caches."""
+        if not conf_ids:
+            return
+        for conf_id in conf_ids:
+            del self.records[conf_id]
+            self.mol.RemoveConformer(conf_id)
+        self._best_energy = min(
+            (_energy_or_inf(record.energy_kcal) for record in self.records.values()),
+            default=float("inf"),
+        )
+        self._worst_id = None
+        self._worst_energy = float("-inf")
+        self._worst_dirty = bool(self.records)
+        self._mark_records_changed()
+
     def dedupe(self) -> int:
         """Run deduplication on the pool.
 
@@ -420,11 +436,11 @@ class ConformerPool:
         """
         # Run final Cartesian RMSD dedupe.
         self.dedupe()
+        conf_ids = self.conf_ids
 
         if self.size <= self.config.max_out:
-            return self.conf_ids
+            return conf_ids
 
-        conf_ids = self.conf_ids
         energies = self.energies
         protected_ids = [cid for cid in conf_ids if _is_protected(self.records[cid])]
         if len(protected_ids) >= self.config.max_out:

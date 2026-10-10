@@ -4,12 +4,14 @@ from dataclasses import dataclass, field
 from typing import Self
 
 import numpy as np
+from numpy.typing import NDArray
 from rdkit import Chem
 
+from ..excluded_volume import sum_clash_scores
 from ..tuning import is_clash_exempt_move
 
 
-def build_nonbonded_mask(mol: Chem.Mol) -> np.ndarray:
+def build_nonbonded_mask(mol: Chem.Mol) -> NDArray[np.bool_]:
     """Build a boolean mask of non-bonded, non-1-3 atom pairs."""
     n = mol.GetNumAtoms()
     mask = np.ones((n, n), dtype=bool)
@@ -34,10 +36,10 @@ class ClashChecker:
     """Fast clash filter for proposed conformers."""
 
     mol: Chem.Mol
-    nonbonded_mask: np.ndarray
+    nonbonded_mask: NDArray[np.bool_]
     clash_threshold2: float
-    _pair_i: np.ndarray = field(init=False, repr=False)
-    _pair_j: np.ndarray = field(init=False, repr=False)
+    _pair_i: NDArray[np.intp] = field(init=False, repr=False)
+    _pair_j: NDArray[np.intp] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Cache non-bonded pair indices for repeated clash checks."""
@@ -63,9 +65,7 @@ class ClashChecker:
         pos = self.mol.GetConformer(conf_id).GetPositions()
         diff = pos[self._pair_i] - pos[self._pair_j]
         dist2 = (diff * diff).sum(axis=1)
-        overlap = self.clash_threshold2 - dist2
-        overlap[overlap < 0.0] = 0.0
-        return float(overlap.sum() / self.clash_threshold2)
+        return sum_clash_scores(dist2, self.clash_threshold2)
 
 
 @dataclass(frozen=True, slots=True)

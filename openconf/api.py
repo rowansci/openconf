@@ -9,6 +9,7 @@ from rdkit import Chem
 
 from .config import ConformerConfig, ConformerPreset, ConstraintSpec, preset_config
 from .exceptions import OpenConfRuntimeError, OpenConfValueError
+from .excluded_volume import ExcludedVolumeSpec
 from .perceive import (
     StereoSignature,
     _is_metal,
@@ -468,6 +469,7 @@ def generate_conformers_from_pose(
     config: ConformerConfig | None = None,
     preset: ConformerPreset | None = None,
     torsion_library: TorsionLibrary | None = None,
+    excluded_volume: ExcludedVolumeSpec | None = None,
 ) -> ConformerEnsemble:
     """Generate conformers for an MCS-aligned pose, keeping core atoms fixed.
 
@@ -493,6 +495,8 @@ def generate_conformers_from_pose(
             nor *preset* is given. Mutually exclusive with *config*.
         torsion_library: torsion library override; when omitted, uses
             the bundled cached CrystalFF-derived library.
+        excluded_volume: static external atoms or points in input pose Cartesian
+            reference frame that reject overlapping conformers
 
     Returns:
         Ensemble with terminal-group conformational diversity while
@@ -500,7 +504,8 @@ def generate_conformers_from_pose(
 
     Raises:
         OpenConfValueError: mol has no conformers, both *config* and *preset* are
-            supplied, or if the method is unknown.
+            supplied, excluded volumes are unanchored, or constrained atoms
+            overlap excluded volumes.
 
     Examples:
         >>> from rdkit import Chem
@@ -519,6 +524,8 @@ def generate_conformers_from_pose(
             "mol must have at least one conformer for pose-constrained generation. "
             "Supply the MCS-aligned pose as conformer 0."
         )
+    if excluded_volume is not None and not constrained_atoms:
+        raise OpenConfValueError("excluded_volume requires at least one constrained atom to anchor the ligand pose.")
 
     if config is not None:
         resolved_config = dataclasses.replace(config, constraint_spec=None)
@@ -538,6 +545,7 @@ def generate_conformers_from_pose(
         rotor_model,
         resolved_config,
         torsion_library=torsion_library,
+        excluded_volume=excluded_volume,
     )
     conf_ids, energies = _filter_stereochemistry_consistent_conformers(
         prepped_mol,
