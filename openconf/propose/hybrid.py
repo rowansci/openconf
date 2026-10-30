@@ -12,7 +12,8 @@ from rdkit.Geometry import rdGeometry
 from ..config import ConformerConfig, ConstraintSpec
 from ..constraints import ConstraintModel, minimize_with_constraints
 from ..dedupe import rmsd_dedupe
-from ..exceptions import OpenConfValueError
+from ..exceptions import OpenConfRuntimeError, OpenConfValueError
+from ..excluded_volume import ExcludedVolumeChecker, ExcludedVolumeSpec
 from ..perceive import RotorModel, _is_metal, filter_constrained_rotors
 from ..pool import ConformerPool
 from ..relax import get_minimizer, minimize_confs_mmff
@@ -112,6 +113,7 @@ class HybridProposer:
         config: ConformerConfig,
         constraint_spec: ConstraintSpec | None = None,
         stats: dict[str, GenerationStat] | None = None,
+        excluded_volume: ExcludedVolumeSpec | None = None,
     ):
         """Initialize the hybrid proposer.
 
@@ -125,6 +127,7 @@ class HybridProposer:
                 global shake moves are suppressed, and minimization applies MMFF
                 position restraints to keep constrained atoms fixed.
             stats: benchmark timing/counter mapping updated in place
+            excluded_volume: static external atoms or points that reject overlapping conformers
         """
         self.constraint_spec = constraint_spec
         self.mol = mol
@@ -132,6 +135,22 @@ class HybridProposer:
         self.torsion_lib = torsion_lib
         self.config = config
         self.stats = stats
+        self._excluded_volume_checker = (
+            ExcludedVolumeChecker(mol, excluded_volume) if excluded_volume is not None else None
+        )
+        if (
+            self._excluded_volume_checker is not None
+            and constraint_spec is not None
+            and self._excluded_volume_checker.clash_score(
+                mol.GetConformers()[0].GetId(),
+                sorted(constraint_spec.constrained_atoms),
+            )
+            > 0.0
+        ):
+            raise OpenConfValueError(
+                "Constrained atoms overlap the excluded volume. Cannot create conformers with the requested "
+                "excluded volume. Please check the input geometry."
+            )
 
         self._metal_atom_indices: frozenset[int] = frozenset(a.GetIdx() for a in mol.GetAtoms() if _is_metal(a))
         metal_constraints = ConstraintModel.from_metal_shell(mol, self._metal_atom_indices)
@@ -218,6 +237,34 @@ class HybridProposer:
         """Accumulate a timing stat when instrumentation is enabled."""
         if self.stats is not None:
             self.stats[key] = float(self.stats.get(key, 0.0)) + elapsed_s
+
+    def _external_clash_score(self, conf_id: int) -> float:
+        """Return external overlap score, or zero when disabled."""
+        if self._excluded_volume_checker is None:
+            return 0.0
+        return self._excluded_volume_checker.clash_score(conf_id)
+
+    def _remove_if_external_clash(self, conf_id: int) -> bool:
+        """Remove conformer and return true when it overlaps external volumes."""
+        if self._external_clash_score(conf_id) <= 0.0:
+            return False
+        self.mol.RemoveConformer(conf_id)
+        return True
+
+    def _filter_external_finalists(
+        self,
+        conf_ids: list[int],
+        energies: list[float],
+    ) -> tuple[list[int], list[float]]:
+        """Filter out finalists that overlap external volumes."""
+        if self._excluded_volume_checker is None:
+            return conf_ids, energies
+        clear = [
+            (conf_id, energy)
+            for conf_id, energy in zip(conf_ids, energies, strict=True)
+            if self._external_clash_score(conf_id) <= 0.0
+        ]
+        return [conf_id for conf_id, _ in clear], [energy for _, energy in clear]
 
     def generate_seeds(self, n_seeds: int, prune_rms_thresh: float | None = None) -> list[tuple[int, float]]:
         """Generate seed conformers using ETKDG, then fast-minimize in batch.
@@ -440,6 +487,8 @@ class HybridProposer:
         if not np.isfinite(energy):
             self.mol.RemoveConformer(new_conf_id)
             return None
+        if self._remove_if_external_clash(new_conf_id):
+            return None
 
         return (new_conf_id, energy, f"hybrid_{move_type}")
 
@@ -559,18 +608,18 @@ class HybridProposer:
         return (
             move_type in _TORSION_MOVE_TYPES
             and self.config.torsion_multitry_attempts > 1
-            and not self.config.skip_clash_check
+            and (not self.config.skip_clash_check or self._excluded_volume_checker is not None)
         )
 
-    def _generate_multitry_candidate(self, parent_id: int, move_type: str) -> int:
-        """Generate several torsion candidates and keep lowest clash score.
+    def _generate_multitry_candidate(self, parent_id: int, move_type: str) -> int | None:
+        """Keep lowest internal-clash candidate that clears external volumes.
 
         Args:
                 parent_id: parent conformer ID
                 move_type: torsion move type to apply
 
         Returns:
-                Identifier for best trial
+                Identifier for best externally clear trial, or None
         """
         best_conf_id: int | None = None
         best_score = float("inf")
@@ -585,22 +634,26 @@ class HybridProposer:
             self._add_time_stat("move_apply_time_s", time.perf_counter() - move_apply_start)
 
             clash_start = time.perf_counter()
-            score = self._clash_checker.clash_score(trial_conf_id)
+            if self._external_clash_score(trial_conf_id) > 0.0:
+                self.mol.RemoveConformer(trial_conf_id)
+                self._add_time_stat("clash_check_time_s", time.perf_counter() - clash_start)
+                continue
+
+            internal_score = 0.0 if self.config.skip_clash_check else self._clash_checker.clash_score(trial_conf_id)
             self._add_time_stat("clash_check_time_s", time.perf_counter() - clash_start)
 
-            if score < best_score:
+            if internal_score < best_score:
                 if best_conf_id is not None:
                     self.mol.RemoveConformer(best_conf_id)
                 best_conf_id = trial_conf_id
-                best_score = score
+                best_score = internal_score
             else:
                 self.mol.RemoveConformer(trial_conf_id)
 
-            if score <= 0.0:
+            if internal_score <= 0.0:
                 break
 
         self._increment_stat("n_torsion_multitry_trials", n_trials)
-        assert best_conf_id is not None
         return best_conf_id
 
     def record_accepted(self, conf_id: int, move_type: str) -> None:
@@ -705,11 +758,15 @@ class HybridProposer:
 
         if self._use_torsion_multitry(move_type):
             new_conf_id = self._generate_multitry_candidate(parent_id, move_type)
+            if new_conf_id is None:
+                return None
         else:
             new_conf_id = _copy_conformer(self.mol, parent_id)
             move_apply_start = time.perf_counter()
             self._move_operators[move_type](new_conf_id)
             self._add_time_stat("move_apply_time_s", time.perf_counter() - move_apply_start)
+            if self._remove_if_external_clash(new_conf_id):
+                return None
 
         # Some ring-centric moves produce strained intermediates that MMFF
         # relaxes successfully; the clash filter would reject many of them
@@ -752,6 +809,8 @@ class HybridProposer:
         if not np.isfinite(energy):
             self._increment_stat("n_minimization_failures")
             self.mol.RemoveConformer(new_conf_id)
+            return None
+        if self._remove_if_external_clash(new_conf_id):
             return None
 
         return (new_conf_id, energy, f"hybrid_{move_type}")
@@ -820,7 +879,7 @@ class HybridProposer:
         self._add_time_stat("batch_commit_time_s", time.perf_counter() - commit_start)
         if failures:
             self._increment_stat("n_minimization_failures", failures)
-        return results
+        return [result for result in results if not self._remove_if_external_clash(result[0])]
 
     def full_refine_final(
         self,
@@ -917,6 +976,7 @@ def run_hybrid_generation(
     rotor_model: RotorModel,
     config: ConformerConfig,
     torsion_library: TorsionLibrary | None = None,
+    excluded_volume: ExcludedVolumeSpec | None = None,
 ) -> tuple[Chem.Mol, list[int], list[float], dict[str, GenerationStat]]:
     """Run hybrid conformer generation.
 
@@ -925,6 +985,7 @@ def run_hybrid_generation(
         rotor_model: rotor model
         config: generation configuration
         torsion_library: torsion library override
+        excluded_volume: static external atoms or points that reject overlapping conformers
 
     Returns:
         Molecule, conformer IDs, energies, and generation stats
@@ -932,6 +993,8 @@ def run_hybrid_generation(
     total_start = time.perf_counter()
     stats = new_generation_stats() if config.collect_stats else {}
     constraint_spec = config.constraint_spec
+    if excluded_volume is not None and (constraint_spec is None or not constraint_spec.constrained_atoms):
+        raise OpenConfValueError("excluded_volume requires pose constraints that anchor at least one ligand atom.")
     has_metal_input = any(_is_metal(atom) for atom in mol.GetAtoms()) and mol.GetNumConformers() > 0
     use_input_seed = (
         constraint_spec.requires_reference_geometry if constraint_spec is not None else False
@@ -967,7 +1030,13 @@ def run_hybrid_generation(
 
     torsion_lib = torsion_library if torsion_library is not None else get_default_torsion_library()
     proposer = HybridProposer(
-        mol, rotor_model, torsion_lib, effective_config, constraint_spec=constraint_spec, stats=stats or None
+        mol,
+        rotor_model,
+        torsion_lib,
+        effective_config,
+        constraint_spec=constraint_spec,
+        stats=stats or None,
+        excluded_volume=excluded_volume,
     )
     pool = ConformerPool(mol, effective_config)
 
@@ -1028,6 +1097,8 @@ def run_hybrid_generation(
                 )
             )
         for lm_conf_id, lm_energy in lm_children:
+            if proposer._remove_if_external_clash(lm_conf_id):
+                continue
             if pool.insert(lm_conf_id, lm_energy, source="low_mode"):
                 n_lm_accepted += 1
             else:
@@ -1102,6 +1173,11 @@ def run_hybrid_generation(
             proposer.record_dedupe_outcome(set(pool.conf_ids))
 
     final_selection_start = time.perf_counter()
+    if excluded_volume is not None:
+        clashing_ids = [conf_id for conf_id in pool.conf_ids if proposer._external_clash_score(conf_id) > 0.0]
+        pool.remove_many(clashing_ids)
+        if not pool.records:
+            raise OpenConfRuntimeError("No conformers satisfy the excluded-volume constraints.")
     final_ids = pool.select_final()
     if stats:
         stats["final_selection_time_s"] = time.perf_counter() - final_selection_start
@@ -1124,6 +1200,10 @@ def run_hybrid_generation(
             )
         if stats:
             stats["final_refine_time_s"] = time.perf_counter() - final_refine_start
+
+        final_ids, final_energies = proposer._filter_external_finalists(final_ids, final_energies)
+        if excluded_volume is not None and not final_ids:
+            raise OpenConfRuntimeError("No conformers satisfy the excluded-volume constraints after final refinement.")
 
         # Post-refinement dedupe: full MMFF geometry changes can merge conformers
         # that were distinct at the fast-minimization stage.
@@ -1150,6 +1230,7 @@ def run_hybrid_generation(
         mol.RemoveConformer(cid)
 
     if stats:
+        stats["n_final_selected"] = len(final_ids)
         stats["total_time_s"] = time.perf_counter() - total_start
 
     return mol, final_ids, final_energies, stats

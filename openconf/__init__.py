@@ -17,6 +17,7 @@ from .config import (
 )
 from .dedupe import rmsd_dedupe
 from .exceptions import OpenConfError, OpenConfRuntimeError, OpenConfValueError
+from .excluded_volume import ExcludedVolumeSpec
 from .io import mol_to_smiles, read_sdf, read_xyz, smiles_to_mol, write_sdf, write_xyz
 from .perceive import Rotor, RotorModel, build_rotor_model, filter_constrained_rotors, prepare_molecule
 from .relax import RDKitMMFFMinimizer, get_minimizer
@@ -30,6 +31,7 @@ __all__ = [
     "ConformerPreset",
     "ConformerRecord",
     "ConstraintSpec",
+    "ExcludedVolumeSpec",
     "OpenConfError",
     "OpenConfRuntimeError",
     "OpenConfValueError",

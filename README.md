@@ -388,6 +388,32 @@ ensemble = generate_conformers_from_pose(mol, constrained_atoms=ring_atoms, conf
 
 </details>
 
+#### Excluded volumes
+
+Pose-constrained searches can reject ligand conformers that overlap fixed
+protein atoms or Cartesian points. Atomic numbers use RDKit covalent radii;
+explicit radii can also be supplied. Coordinates must share the input ligand
+pose's reference frame.
+
+```python
+from openconf import ExcludedVolumeSpec, generate_conformers_from_pose
+
+protein_pocket = ExcludedVolumeSpec(
+    positions=((12.1, 8.4, -2.0), (10.8, 7.9, -1.2)),
+    atomic_numbers=(6, 8),
+    radius_scale=1.0,
+)
+ensemble = generate_conformers_from_pose(
+    mol,
+    constrained_atoms=ring_atoms,
+    excluded_volume=protein_pocket,
+)
+```
+
+Torsion multi-try considers only externally clear candidates, then selects the
+lowest internal clash score. Candidates are checked again after minimization.
+Generation raises an error if no clash-free conformer survives.
+
 ---
 
 ### Configuration Quick Reference
