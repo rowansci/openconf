@@ -40,6 +40,6 @@ jobs:
         run: uv run pytest -m 'regression or not regression' --cov --cov-report=xml
 
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
