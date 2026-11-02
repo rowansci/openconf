@@ -366,48 +366,63 @@ class MoveExecutor:
             _set_dihedral(self.mol, conf_id, rotor.dihedral_atoms, self.sample_angle(rotor_idx))
 
     def apply_crankshaft_move(self, conf_id: int) -> None:
-        """Rotate an arc of ring atoms about the axis through two anchor atoms."""
+        """Rotate an arc of ring atoms about the axis through two anchor atoms.
+
+        The moving set is a union of substituent subtrees, so in fused or
+        bridged rings it can drag atoms bonded to anchors that stay fixed. That
+        stretches the anchoring bonds and can invert a specified stereocentre.
+        Up to ten arcs are tried and the first proposal that preserves
+        input-specified stereochemistry is kept; coordinates are restored when
+        every attempt fails. Unassigned centres are absent from the reference
+        signature and stay free to change.
+        """
         if not self.crankable_rings:
             return
 
-        ring_atoms, subtrees = random.choice(self.crankable_rings)
-        n = len(ring_atoms)
-        p = random.randrange(n)
-        arc_len = random.randint(1, n - 3)
-        interior = [(p + 1 + k) % n for k in range(arc_len)]
-        q = (p + arc_len + 1) % n
-
-        anchor_p_idx = ring_atoms[p]
-        anchor_q_idx = ring_atoms[q]
         conf = self.mol.GetConformer(conf_id)
-        all_pos = conf.GetPositions()
-        axis_origin = all_pos[anchor_p_idx]
-        axis_vec = all_pos[anchor_q_idx] - axis_origin
-        axis_norm = float(np.linalg.norm(axis_vec))
-        if axis_norm < 1e-6:
-            return
-        axis_unit = axis_vec / axis_norm
+        original_pos = conf.GetPositions()
+        for _ in range(10):
+            all_pos = original_pos.copy()
+            ring_atoms, subtrees = random.choice(self.crankable_rings)
+            n = len(ring_atoms)
+            p = random.randrange(n)
+            arc_len = random.randint(1, n - 3)
+            interior = [(p + 1 + k) % n for k in range(arc_len)]
+            q = (p + arc_len + 1) % n
 
-        base = random.uniform(30.0, 120.0) * random.choice([-1.0, 1.0])
-        theta = np.deg2rad(base + np.random.normal(0.0, self.config.torsion_jitter_deg))
+            anchor_p_idx = ring_atoms[p]
+            anchor_q_idx = ring_atoms[q]
+            axis_origin = all_pos[anchor_p_idx]
+            axis_vec = all_pos[anchor_q_idx] - axis_origin
+            axis_norm = float(np.linalg.norm(axis_vec))
+            if axis_norm < 1e-6:
+                continue
+            axis_unit = axis_vec / axis_norm
 
-        moving: set[int] = set()
-        for pos_in_ring in interior:
-            moving |= subtrees[pos_in_ring]
-        if not moving:
-            return
+            base = random.uniform(30.0, 120.0) * random.choice([-1.0, 1.0])
+            theta = np.deg2rad(base + np.random.normal(0.0, self.config.torsion_jitter_deg))
 
-        moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
-        _rodrigues_rotate(
-            all_pos,
-            moving_arr,
-            axis_origin,
-            float(axis_unit[0]),
-            float(axis_unit[1]),
-            float(axis_unit[2]),
-            theta,
-        )
-        conf.SetPositions(all_pos)
+            moving: set[int] = set()
+            for pos_in_ring in interior:
+                moving |= subtrees[pos_in_ring]
+            if not moving:
+                continue
+
+            moving_arr = np.fromiter(moving, dtype=np.int64, count=len(moving))
+            _rodrigues_rotate(
+                all_pos,
+                moving_arr,
+                axis_origin,
+                float(axis_unit[0]),
+                float(axis_unit[1]),
+                float(axis_unit[2]),
+                theta,
+            )
+            conf.SetPositions(all_pos)
+            if conformer_matches_specified_stereochemistry(self.mol, conf_id, self.reference_stereo):
+                return
+
+        conf.SetPositions(original_pos)
 
     def apply_amide_flip_move(self, conf_id: int) -> None:
         """Invert an in-ring amide by rotating its ring arc 180° about the C-N bond.
