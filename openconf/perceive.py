@@ -419,12 +419,19 @@ def specified_stereochemistry(mol: Chem.Mol) -> StereoSignature:
     return StereoSignature(tetrahedral=tetrahedral, bonds=bonds)
 
 
-def stereochemistry_from_conformer(mol: Chem.Mol, conf_id: int) -> StereoSignature:
+def stereochemistry_from_conformer(
+    mol: Chem.Mol,
+    conf_id: int,
+    atoms: set[int] | None = None,
+) -> StereoSignature:
     """Perceive tetrahedral and double-bond stereochemistry from conformer coordinates.
 
     Args:
         mol: molecule to inspect
         conf_id: conformer ID
+        atoms: atom indices to label; when given, every other atom is left
+            unassigned so that pseudo-asymmetric labels are perceived over the
+            same set of defined centers as reference signature
 
     Returns:
         Stereochemistry labels perceived from 3D coordinates
@@ -436,6 +443,13 @@ def stereochemistry_from_conformer(mol: Chem.Mol, conf_id: int) -> StereoSignatu
         bond.SetStereo(Chem.BondStereo.STEREONONE)
 
     Chem.AssignStereochemistryFrom3D(work, confId=int(conf_id), replaceExistingTags=True)
+    if atoms is not None:
+        # The labels of pseudo-asymmetric (r/s) centers depend on the configuration
+        # of neighboring centers, so centers absent from the input specification
+        # must stay unassigned for the labels to be comparable.
+        for atom in work.GetAtoms():
+            if atom.GetIdx() not in atoms:
+                atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
     Chem.AssignStereochemistry(work, cleanIt=True, force=True)
 
     center_labels = dict(Chem.FindMolChiralCenters(work, includeUnassigned=False, useLegacyImplementation=False))
@@ -461,7 +475,7 @@ def conformer_matches_specified_stereochemistry(
     if not reference.tetrahedral and not reference.bonds:
         return True
 
-    observed = stereochemistry_from_conformer(mol, conf_id)
+    observed = stereochemistry_from_conformer(mol, conf_id, atoms=set(reference.tetrahedral))
     for atom_idx, label in reference.tetrahedral.items():
         if observed.tetrahedral.get(atom_idx) != label:
             return False
