@@ -1594,3 +1594,42 @@ def test_xyz_metal_tm_move_seeds_are_generated():
     assert int(ensemble.generation_stats["n_tm_move_seed_attempts"]) > 0
     assert int(ensemble.generation_stats["n_tm_move_seeds"]) > 0
     assert ensemble.n_conformers > 1
+
+
+def test_read_sdf_keeps_energies_aligned_with_conformer_ids(tmp_path):
+    """read_sdf returns one energy slot per conformer when only some records carry one."""
+    from rdkit.Chem import AllChem
+
+    from openconf import read_sdf
+
+    def write_record(writer, name, energy=None):
+        mol = Chem.AddHs(Chem.MolFromSmiles("CC"))
+        AllChem.EmbedMolecule(mol, randomSeed=1)
+        mol.SetProp("_Name", name)
+        if energy is not None:
+            mol.SetProp("Energy_kcal", energy)
+        writer.write(mol)
+
+    mixed = tmp_path / "mixed.sdf"
+    writer = Chem.SDWriter(str(mixed))
+    write_record(writer, "no-energy")
+    write_record(writer, "with-energy", "-1.2345")
+    writer.close()
+
+    _, conf_ids, energies = read_sdf(str(mixed))
+
+    assert len(conf_ids) == 2
+    assert len(energies) == len(conf_ids)
+    assert energies[0] == float("inf")
+    assert energies[1] == pytest.approx(-1.2345)
+
+    without = tmp_path / "without.sdf"
+    writer = Chem.SDWriter(str(without))
+    write_record(writer, "no-energy-1")
+    write_record(writer, "no-energy-2")
+    writer.close()
+
+    _, conf_ids, energies = read_sdf(str(without))
+
+    assert len(conf_ids) == 2
+    assert energies == []
