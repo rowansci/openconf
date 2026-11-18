@@ -421,11 +421,17 @@ class ConformerPool:
         # Run final Cartesian RMSD dedupe.
         self.dedupe()
 
-        if self.size <= self.config.max_out:
-            return self.conf_ids
+        # Earlier insertions may be outside the window after a lower minimum arrives.
+        energy_ceiling = min(self.energies, default=float("inf")) + self.config.energy_window_kcal
+        conf_ids = [
+            cid
+            for cid in self.conf_ids
+            if _is_protected(self.records[cid]) or _energy_or_inf(self.records[cid].energy_kcal) <= energy_ceiling
+        ]
+        if len(conf_ids) <= self.config.max_out:
+            return conf_ids
 
-        conf_ids = self.conf_ids
-        energies = self.energies
+        energies = [_energy_or_inf(self.records[cid].energy_kcal) for cid in conf_ids]
         protected_ids = [cid for cid in conf_ids if _is_protected(self.records[cid])]
         if len(protected_ids) >= self.config.max_out:
             sorted_protected = sorted(
