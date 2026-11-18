@@ -1005,7 +1005,8 @@ def run_hybrid_generation(
         lm_ff_props = getattr(proposer.fast_minimizer, "_mmff_props", None)
         lm_start = time.perf_counter()
         n_lm_accepted = 0
-        source_seeds = sorted(seeds, key=lambda x: x[1])[: effective_config.low_mode_n_source_seeds]
+        surviving_seeds = [(cid, energy) for cid, energy in seeds if cid in pool.records]
+        source_seeds = sorted(surviving_seeds, key=lambda x: x[1])[: effective_config.low_mode_n_source_seeds]
         # Materialize the low-mode children for every source seed before any
         # pool insertion. The source seeds are themselves pool members, so
         # inserting one seed's children could evict a later, not-yet-processed
