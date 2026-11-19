@@ -19,6 +19,7 @@ from .dedupe import rmsd_dedupe
 from .exceptions import OpenConfError, OpenConfRuntimeError, OpenConfValueError
 from .io import mol_to_smiles, read_sdf, read_xyz, smiles_to_mol, write_sdf, write_xyz
 from .perceive import Rotor, RotorModel, build_rotor_model, filter_constrained_rotors, prepare_molecule
+from .propose.moves import add_terminal_hydrogen_rotamers
 from .relax import RDKitMMFFMinimizer, get_minimizer
 from .torsionlib import TorsionLibrary, TorsionRule
 
@@ -39,6 +40,7 @@ __all__ = [
     "TorsionConstraintSpec",
     "TorsionLibrary",
     "TorsionRule",
+    "add_terminal_hydrogen_rotamers",
     "build_rotor_model",
     "filter_constrained_rotors",
     "generate_conformers",

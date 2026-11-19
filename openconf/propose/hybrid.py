@@ -25,7 +25,7 @@ from ..tuning import (
 from .amide_seeds import find_ring_tertiary_amide_dihedrals, generate_amide_variant_seeds
 from .candidates import CandidateBatchWorkspace, ClashChecker, build_nonbonded_mask
 from .low_mode import generate_low_mode_seeds
-from .moves import MoveExecutor
+from .moves import MoveExecutor, add_terminal_hydrogen_rotamers
 from .seeding import (
     SeedPlan,
     _compute_n_seeds,
@@ -219,12 +219,19 @@ class HybridProposer:
         if self.stats is not None:
             self.stats[key] = float(self.stats.get(key, 0.0)) + elapsed_s
 
-    def generate_seeds(self, n_seeds: int, prune_rms_thresh: float | None = None) -> list[tuple[int, float]]:
+    def generate_seeds(
+        self,
+        n_seeds: int,
+        prune_rms_thresh: float | None = None,
+        *,
+        sample_terminal_hydrogens: bool = False,
+    ) -> list[tuple[int, float]]:
         """Generate seed conformers using ETKDG, then fast-minimize in batch.
 
         Args:
                 n_seeds: seed conformer count to generate
                 prune_rms_thresh: pre-resolved ETKDG prune threshold
+                sample_terminal_hydrogens: expand embedded seeds with polar-hydrogen rotamers
 
         Returns:
                 Identifiers and energies for successfully embedded seeds
@@ -298,6 +305,13 @@ class HybridProposer:
                 conf_ids = [self.mol.AddConformer(new_conf, assignId=True)]
             else:
                 return []
+
+        if sample_terminal_hydrogens:
+            conf_ids.extend(
+                rotamer_id
+                for seed_id in tuple(conf_ids)
+                for rotamer_id in add_terminal_hydrogen_rotamers(self.mol, seed_id)
+            )
 
         # Minimize each seed using pre-prepared MMFF props (includes fast_dielectric).
         mmff_props = getattr(self.fast_minimizer, "_mmff_props", None)
@@ -1161,12 +1175,13 @@ def run_low_flex_generation(
     config: ConformerConfig,
     torsion_library: TorsionLibrary | None = None,
 ) -> tuple[Chem.Mol, list[int], list[float], dict[str, GenerationStat]]:
-    """Run the ETKDG-only low-flexibility fast path.
+    """Run the low-flexibility fast path.
 
     This path is intended for simple unconstrained molecules where torsional
     MC exploration adds little value over dense ETKDG seeding. It reuses the
     existing seed generation, pool selection, and final refinement logic while
-    skipping the proposal loop entirely.
+    skipping the proposal loop entirely. All-atom searches also seed terminal
+    polar-hydrogen rotamers before minimization.
 
     Args:
         mol: molecule to modify
@@ -1195,7 +1210,11 @@ def run_low_flex_generation(
 
     seed_start = time.perf_counter()
     input_positions = mol.GetConformers()[0].GetPositions().copy() if mol.GetNumConformers() > 0 else None
-    seeds = proposer.generate_seeds(seed_plan.n_seeds, prune_rms_thresh=seed_plan.prune_rms_thresh)
+    seeds = proposer.generate_seeds(
+        seed_plan.n_seeds,
+        prune_rms_thresh=seed_plan.prune_rms_thresh,
+        sample_terminal_hydrogens=not config.use_heavy_atoms_only,
+    )
     if stats:
         stats["seed_time_s"] = time.perf_counter() - seed_start
         stats["n_seed_conformers"] = len(seeds)
