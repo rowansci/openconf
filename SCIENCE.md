@@ -95,7 +95,7 @@ below explain the trade-offs.
 
 `n_seeds` — Number of initial ETKDG seed conformers. Defaults to `None`, which triggers automatic seed-plan resolution: topology-derived base count, ring and macrocycle bonuses, and conservative data-backed reductions for molecular classes where redundant ETKDG embeddings are common. Override with an explicit integer only when you have a specific reason — for example, to enforce reproducibility of a previous run, or to reduce runtime for large-scale screening.
 
-`n_steps` — Number of Monte Carlo exploration steps. Each step proposes a new conformer by perturbing torsions (or flipping a ring) from an existing pool member. More steps explore more thoroughly but take longer. For molecules with many rotatable bonds, more steps are needed to adequately sample the space.
+`n_steps` sets the maximum number of Monte Carlo proposals. Each step perturbs torsions or flips a ring in an existing pool member. For unconstrained, metal-free acyclic molecules, the budget is zero with no rotors and capped at 32 with one to three rotors. Flexible molecules generally need more steps to sample their conformations.
 
 `pool_max` — Internal pool size limit. Caps memory usage and keeps deduplication fast. Should be several times larger than `max_out` to allow the algorithm to explore before selecting the final diverse set.
 

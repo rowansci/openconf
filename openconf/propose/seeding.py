@@ -98,15 +98,14 @@ def _is_low_flex_seed_budget_candidate(
     config: Config,
 ) -> bool:
     """Return whether reduced low-flexibility auto-seeding can be applied."""
-    tuning = get_runtime_tuning().low_flex_path
+    tuning = get_runtime_tuning().low_flex
     budget = tuning.seed_budget
     return (
         budget.enabled
         and config.constraint_spec is None
         and rotor_model.n_rotatable <= tuning.max_rotatable
         and mol.GetNumHeavyAtoms() <= budget.max_heavy_atoms
-        and (tuning.allow_macrocycles or not rotor_model.ring_info.get("has_macrocycle"))
-        and (tuning.allow_rings or not rotor_model.ring_info.get("ring_sizes"))
+        and not rotor_model.ring_info.get("ring_sizes")
     )
 
 
@@ -175,7 +174,7 @@ def resolve_seed_plan(mol: Molecule, rotor_model: Model, config: Config) -> Seed
     reason = "auto"
 
     if _is_low_flex_seed_budget_candidate(mol, rotor_model, config):
-        budget = get_runtime_tuning().low_flex_path.seed_budget
+        budget = get_runtime_tuning().low_flex.seed_budget
         budget_floor = budget.seed_floor
         capped_n_seeds = max(budget.seed_floor, rotor_model.n_rotatable * budget.seed_per_rotor)
         capped_n_seeds = min(capped_n_seeds, budget.max_seeds)

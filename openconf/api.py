@@ -18,10 +18,9 @@ from .perceive import (
     specified_stereochemistry,
 )
 from .pool import ConformerRecord
-from .propose.hybrid import run_hybrid_generation, run_low_flex_generation
+from .propose.hybrid import run_hybrid_generation
 from .propose.stats import GenerationStat
 from .torsionlib import TorsionLibrary
-from .tuning import get_runtime_tuning
 
 # Gas constant in kcal/(mol·K); kT at 298.15 K ≈ 0.5924 kcal/mol.
 _R_KCAL_PER_MOL_K = 1.987204e-3
@@ -430,21 +429,12 @@ def generate_conformers(
     rotor_model = build_rotor_model(mol)
 
     if method == "hybrid":
-        low_flex_tuning = get_runtime_tuning().low_flex_path
         has_metal = any(_is_metal(atom) for atom in mol.GetAtoms())
         has_metal_input = has_metal and mol.GetNumConformers() > 0
         config = _with_auto_transition_metal_sampling(config, has_metal=has_metal, has_metal_input=has_metal_input)
-        has_tm_sampling_profile = has_metal and config.move_probs.get("tm_ligand_rotate", 0.0) > 0.0
-        use_low_flex_path = (
-            config.constraint_spec is None
-            and not has_metal_input
-            and not has_tm_sampling_profile
-            and rotor_model.n_rotatable <= low_flex_tuning.max_rotatable
-            and (low_flex_tuning.allow_macrocycles or not rotor_model.ring_info.get("has_macrocycle"))
-            and (low_flex_tuning.allow_rings or not rotor_model.ring_info.get("ring_sizes"))
+        mol, conf_ids, energies, generation_stats = run_hybrid_generation(
+            mol, rotor_model, config, torsion_library=torsion_library
         )
-        runner = run_low_flex_generation if use_low_flex_path else run_hybrid_generation
-        mol, conf_ids, energies, generation_stats = runner(mol, rotor_model, config, torsion_library=torsion_library)
     else:
         raise OpenConfValueError(f"Unknown method: {method}. Available: 'hybrid'")
 

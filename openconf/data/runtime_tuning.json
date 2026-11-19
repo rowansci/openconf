@@ -79,10 +79,9 @@
       "tm_haptic_rotate"
     ]
   },
-  "low_flex_path": {
+  "low_flex": {
     "max_rotatable": 3,
-    "allow_macrocycles": false,
-    "allow_rings": false,
+    "max_steps": 32,
     "seed_budget": {
       "enabled": true,
       "max_heavy_atoms": 30,
