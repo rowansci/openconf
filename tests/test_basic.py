@@ -106,41 +106,32 @@ def test_generate_conformers_accepts_custom_torsion_library():
     assert ensemble.n_conformers > 0
 
 
-def test_low_flex_path_dispatch(monkeypatch):
-    """Very low-flexibility molecules use the ETKDG-only fast path."""
-    from openconf import ConformerConfig, api
+@pytest.mark.parametrize(
+    ("smiles", "n_steps", "expected_steps"),
+    [("C", 40, 0), ("CCCC", 40, 32), ("CCCC", 3, 3), ("CCCC", 0, 0), ("CCCCCC", 37, 37), ("C1CCCCC1", 40, 40)],
+)
+def test_hybrid_move_budget(smiles: str, n_steps: int, expected_steps: int) -> None:
+    """Limit acyclic low-flexibility searches and honor smaller caller budgets."""
+    from openconf import ConformerConfig, generate_conformers
 
-    called = {"low": 0, "hybrid": 0}
-    orig_low = api.run_low_flex_generation
-    orig_hybrid = api.run_hybrid_generation
+    config = ConformerConfig(max_out=5, n_seeds=3, n_steps=n_steps, random_seed=42, collect_stats=True)
+    ensemble = generate_conformers(smiles, config=config)
 
-    def wrapped_low(*args, **kwargs):
-        called["low"] += 1
-        return orig_low(*args, **kwargs)
-
-    def wrapped_hybrid(*args, **kwargs):
-        called["hybrid"] += 1
-        return orig_hybrid(*args, **kwargs)
-
-    monkeypatch.setattr(api, "run_low_flex_generation", wrapped_low)
-    monkeypatch.setattr(api, "run_hybrid_generation", wrapped_hybrid)
-
-    config = ConformerConfig(max_out=5, n_seeds=3, n_steps=20, pool_max=20, random_seed=0, collect_stats=True)
-    ensemble = api.generate_conformers("CCCC", config=config)
-
-    assert called == {"low": 1, "hybrid": 0}
-    assert int(ensemble.generation_stats["n_steps_executed"]) == 0
+    assert ensemble.n_conformers > 0
+    assert ensemble.generation_stats["n_steps_executed"] == expected_steps
 
 
 @pytest.mark.parametrize(
-    ("smiles", "dihedral"),
-    [("O=C([O-])C(=O)O", (1, 3, 5, 6)), ("OC(=O)C([O-])=O", (3, 1, 0, 6))],
+    ("smiles", "dihedral", "random_seed"),
+    [("O=C([O-])C(=O)O", (1, 3, 5, 6), 42), ("OC(=O)C([O-])=O", (3, 1, 0, 6), 10256)],
 )
-def test_low_flex_path_samples_both_hydrogen_oxalate_rotamers(smiles: str, dihedral: tuple[int, int, int, int]) -> None:
-    """Find both OH orientations through the fast path for either atom ordering."""
+def test_hybrid_search_samples_both_hydrogen_oxalate_rotamers(
+    smiles: str, dihedral: tuple[int, int, int, int], random_seed: int
+) -> None:
+    """Find both OH orientations with ordinary torsion moves for either atom ordering."""
     from openconf import ConformerConfig, generate_conformers
 
-    config = ConformerConfig(random_seed=42, use_heavy_atoms_only=False, collect_stats=True)
+    config = ConformerConfig(random_seed=random_seed, use_heavy_atoms_only=False, collect_stats=True, num_threads=1)
     ensemble = generate_conformers(smiles, config=config)
 
     angles = sorted(
@@ -148,32 +139,7 @@ def test_low_flex_path_samples_both_hydrogen_oxalate_rotamers(smiles: str, dihed
         for conf_id in ensemble.conf_ids
     )
     assert angles == pytest.approx([0, 180], abs=1)
-    assert ensemble.generation_stats["n_steps_executed"] == 0
-
-
-def test_higher_flex_path_uses_hybrid_generation(monkeypatch):
-    """More flexible molecules continue to use the hybrid MC path."""
-    from openconf import ConformerConfig, api
-
-    called = {"low": 0, "hybrid": 0}
-    orig_low = api.run_low_flex_generation
-    orig_hybrid = api.run_hybrid_generation
-
-    def wrapped_low(*args, **kwargs):
-        called["low"] += 1
-        return orig_low(*args, **kwargs)
-
-    def wrapped_hybrid(*args, **kwargs):
-        called["hybrid"] += 1
-        return orig_hybrid(*args, **kwargs)
-
-    monkeypatch.setattr(api, "run_low_flex_generation", wrapped_low)
-    monkeypatch.setattr(api, "run_hybrid_generation", wrapped_hybrid)
-
-    config = ConformerConfig(max_out=5, n_seeds=3, n_steps=20, pool_max=30, random_seed=0)
-    api.generate_conformers("CCCCc1ccccc1", config=config)
-
-    assert called == {"low": 0, "hybrid": 1}
+    assert ensemble.generation_stats["n_steps_executed"] == 32
 
 
 def test_runtime_tuning_policy_helpers():

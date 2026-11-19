@@ -10,7 +10,6 @@ from rdkit.Chem import rdMolTransforms
 
 from ..perceive import (
     RotorModel,
-    _get_dihedral_atoms,
     _is_metal,
     _ring_flip_moving_atoms,
     conformer_matches_specified_stereochemistry,
@@ -36,52 +35,6 @@ def _set_dihedral(mol: Chem.Mol, conf_id: int, atoms: tuple[int, int, int, int],
     """Set a dihedral angle in a conformer."""
     conf = mol.GetConformer(conf_id)
     rdMolTransforms.SetDihedralDeg(conf, atoms[0], atoms[1], atoms[2], atoms[3], angle_deg)
-
-
-def add_terminal_hydrogen_rotamers(mol: Chem.Mol, conf_id: int = -1) -> list[int]:
-    """Append unrelaxed rotamers of explicit terminal N, O, and S hydrogens.
-
-    Rotate one group at a time by 180° beside an sp² atom and by 120° and
-    240° otherwise. Heavy atoms and the source conformer stay fixed.
-
-    Args:
-        mol: molecule with explicit hydrogen atoms and a 3D conformer
-        conf_id: source conformer ID
-
-    Returns:
-        IDs of the added conformers
-    """
-    source = mol.GetConformer(conf_id)
-    rotamers = []
-    for atom in mol.GetAtoms():
-        if atom.GetAtomicNum() not in (7, 8, 16):
-            continue
-        neighbors = atom.GetNeighbors()
-        heavy = [neighbor for neighbor in neighbors if neighbor.GetAtomicNum() != 1]
-        if (
-            len(heavy) != 1
-            or len(neighbors) < 2
-            or any(neighbor.GetAtomicNum() == 1 and neighbor.GetDegree() != 1 for neighbor in neighbors)
-        ):
-            continue
-        parent = heavy[0]
-        bond = mol.GetBondBetweenAtoms(atom.GetIdx(), parent.GetIdx())
-        if bond.GetBondType() != Chem.BondType.SINGLE:
-            continue
-        atoms = _get_dihedral_atoms(mol, bond.GetIdx())
-        if atoms is None:
-            continue
-        if atoms[1] == atom.GetIdx():
-            atoms = atoms[::-1]
-        angle = rdMolTransforms.GetDihedralDeg(source, *atoms)
-        offsets = (
-            (180,) if Chem.HybridizationType.SP2 in (atom.GetHybridization(), parent.GetHybridization()) else (120, 240)
-        )
-        for offset in offsets:
-            rotamer_id = mol.AddConformer(Chem.Conformer(source), assignId=True)
-            _set_dihedral(mol, rotamer_id, atoms, angle + offset)
-            rotamers.append(rotamer_id)
-    return rotamers
 
 
 def _rodrigues_rotate(

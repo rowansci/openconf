@@ -241,7 +241,8 @@ class ConformerConfig:
         n_seeds: initial ETKDG seed conformer count. When None (default),
             computed automatically as `max(20, n_rotatable * seed_n_per_rotor)` with additional
             seeds for non-aromatic rings and macrocycles.
-        n_steps: exploration step count for walker.
+        n_steps: maximum exploration steps for walker. Simple acyclic molecules
+            can use a smaller budget.
         energy_window_kcal: Energy window for keeping conformers (kcal/mol).
         dedupe_period: Run deduplication every N steps.
         shake_period: Apply global shake every N steps.
@@ -250,8 +251,7 @@ class ConformerConfig:
         minimizer: Which minimizer to use. Only `"rdkit_mmff"` is supported.
         random_seed: Random seed for reproducibility.
         num_threads: thread count for parallel operations.
-        use_heavy_atoms_only: Use only heavy atoms for RMSD calculations. All-atom
-            searches also seed terminal polar-hydrogen rotamers on the low-flexibility path.
+        use_heavy_atoms_only: Use only heavy atoms for RMSD calculations.
         dedupe_rmsd_threshold: Cartesian RMSD threshold for conformer
             deduplication. Set to None to disable periodic and final
             deduplication.

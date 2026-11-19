@@ -420,6 +420,8 @@ When `use_low_mode_following=True`, an additional seeding step runs after ETKDG:
 
 ### 2. Hybrid Exploration
 
+For unconstrained, metal-free acyclic molecules, the hybrid search skips exploration when the rotor model finds no rotatable bonds and makes up to 32 proposals when it finds one to three. `n_steps` sets an upper limit in all cases.
+
 The default "hybrid" strategy combines:
 
 - Torsion library: 365 crystallography-derived SMARTS rules (RDKit CrystalFF, Riniker & Landrum 2016) with Boltzmann-weighted angle preferences

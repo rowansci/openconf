@@ -87,12 +87,11 @@ class LowFlexSeedBudgetTuning:
 
 
 @dataclass(frozen=True, slots=True)
-class LowFlexPathTuning:
-    """Settings for the ETKDG-only low-flexibility fast path."""
+class LowFlexTuning:
+    """Seed and move budgets for simple acyclic molecules."""
 
     max_rotatable: int
-    allow_macrocycles: bool
-    allow_rings: bool
+    max_steps: int
     seed_budget: LowFlexSeedBudgetTuning
 
 
@@ -104,7 +103,7 @@ class RuntimeTuning:
     macrocycle_seeding: MacrocycleSeedingTuning
     move_scheduling: MoveSchedulingTuning
     clash_check: ClashCheckTuning
-    low_flex_path: LowFlexPathTuning
+    low_flex: LowFlexTuning
 
 
 def _load_runtime_tuning() -> RuntimeTuning:
@@ -167,16 +166,15 @@ def _load_runtime_tuning() -> RuntimeTuning:
             },
         ),
         clash_check=ClashCheckTuning(exempt_moves=frozenset(raw["clash_check"]["exempt_moves"])),
-        low_flex_path=LowFlexPathTuning(
-            max_rotatable=int(raw["low_flex_path"]["max_rotatable"]),
-            allow_macrocycles=bool(raw["low_flex_path"]["allow_macrocycles"]),
-            allow_rings=bool(raw["low_flex_path"]["allow_rings"]),
+        low_flex=LowFlexTuning(
+            max_rotatable=int(raw["low_flex"]["max_rotatable"]),
+            max_steps=int(raw["low_flex"]["max_steps"]),
             seed_budget=LowFlexSeedBudgetTuning(
-                enabled=bool(raw["low_flex_path"]["seed_budget"]["enabled"]),
-                max_heavy_atoms=int(raw["low_flex_path"]["seed_budget"]["max_heavy_atoms"]),
-                seed_floor=int(raw["low_flex_path"]["seed_budget"]["seed_floor"]),
-                seed_per_rotor=int(raw["low_flex_path"]["seed_budget"]["seed_per_rotor"]),
-                max_seeds=int(raw["low_flex_path"]["seed_budget"]["max_seeds"]),
+                enabled=bool(raw["low_flex"]["seed_budget"]["enabled"]),
+                max_heavy_atoms=int(raw["low_flex"]["seed_budget"]["max_heavy_atoms"]),
+                seed_floor=int(raw["low_flex"]["seed_budget"]["seed_floor"]),
+                seed_per_rotor=int(raw["low_flex"]["seed_budget"]["seed_per_rotor"]),
+                max_seeds=int(raw["low_flex"]["seed_budget"]["max_seeds"]),
             ),
         ),
     )

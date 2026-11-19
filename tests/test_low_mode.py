@@ -415,6 +415,24 @@ def test_low_mode_following_survives_pool_overflow():
     assert int(ens.generation_stats.get("n_low_mode_seeds", 0)) >= 0
 
 
+def test_low_mode_following_scans_retained_seeds() -> None:
+    """Low-mode scanning uses surviving seeds when initial seeding fills the pool."""
+    config = ConformerConfig(
+        use_low_mode_following=True,
+        low_mode_n_source_seeds=2,
+        n_seeds=12,
+        seed_prune_rms_thresh=-1,
+        n_steps=0,
+        max_out=1,
+        pool_max=1,
+        random_seed=42,
+        num_threads=1,
+    )
+    ensemble = generate_conformers("CCCC", config=config)
+
+    assert ensemble.n_conformers == ensemble.mol.GetNumConformers() == 1
+
+
 def test_low_mode_following_stat_absent_when_disabled():
     """With use_low_mode_following=False, low_mode_time_s must be 0."""
     config = ConformerConfig(
