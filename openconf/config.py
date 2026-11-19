@@ -250,7 +250,8 @@ class ConformerConfig:
         minimizer: Which minimizer to use. Only `"rdkit_mmff"` is supported.
         random_seed: Random seed for reproducibility.
         num_threads: thread count for parallel operations.
-        use_heavy_atoms_only: Use only heavy atoms for RMSD calculations.
+        use_heavy_atoms_only: Use only heavy atoms for RMSD calculations. All-atom
+            searches also seed terminal polar-hydrogen rotamers on the low-flexibility path.
         dedupe_rmsd_threshold: Cartesian RMSD threshold for conformer
             deduplication. Set to None to disable periodic and final
             deduplication.

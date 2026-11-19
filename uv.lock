@@ -251,7 +251,7 @@ wheels = [
 
 [[package]]
 name = "openconf"
-version = "0.0.18"
+version = "0.0.20"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },

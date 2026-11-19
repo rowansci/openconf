@@ -2,6 +2,7 @@
 
 import pytest
 from rdkit import Chem
+from rdkit.Chem import rdMolTransforms
 
 
 def test_prepare_molecule():
@@ -129,6 +130,25 @@ def test_low_flex_path_dispatch(monkeypatch):
 
     assert called == {"low": 1, "hybrid": 0}
     assert int(ensemble.generation_stats["n_steps_executed"]) == 0
+
+
+@pytest.mark.parametrize(
+    ("smiles", "dihedral"),
+    [("O=C([O-])C(=O)O", (1, 3, 5, 6)), ("OC(=O)C([O-])=O", (3, 1, 0, 6))],
+)
+def test_low_flex_path_samples_both_hydrogen_oxalate_rotamers(smiles: str, dihedral: tuple[int, int, int, int]) -> None:
+    """Find both OH orientations through the fast path for either atom ordering."""
+    from openconf import ConformerConfig, generate_conformers
+
+    config = ConformerConfig(random_seed=42, use_heavy_atoms_only=False, collect_stats=True)
+    ensemble = generate_conformers(smiles, config=config)
+
+    angles = sorted(
+        abs(rdMolTransforms.GetDihedralDeg(ensemble.mol.GetConformer(conf_id), *dihedral))
+        for conf_id in ensemble.conf_ids
+    )
+    assert angles == pytest.approx([0, 180], abs=1)
+    assert ensemble.generation_stats["n_steps_executed"] == 0
 
 
 def test_higher_flex_path_uses_hybrid_generation(monkeypatch):
