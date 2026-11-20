@@ -102,25 +102,22 @@ def minimize_confs_mmff(
     num_threads: int = 0,
     variant: str = "MMFF94s",
 ) -> list[float]:
-    """Minimize conformers and return energies evaluated with mmff_props.
+    """Minimize conformers with mmff_props and return their energies.
 
-    Uses MMFFOptimizeMoleculeConfs for parallel C++ geometry minimization, then
-    re-evaluates each conformer's energy with the pre-prepared mmff_props (which
-    carries the custom dielectric). This recovers the C++ parallelism that would
-    be lost by a per-conformer Python loop, while still reporting energies that
-    reflect the requested dielectric constant.
+    Builds one force field from the pre-prepared mmff_props (which carries the
+    custom dielectric and variant) and hands it to OptimizeMoleculeConfs, which
+    reuses it for every conformer across parallel C++ threads. Geometries are
+    therefore minimized under the same dielectric used for the reported energies.
 
-    Note: geometries are at the default-dielectric (ε=1) MMFF minimum; the custom
-    dielectric is applied only to the energy evaluation. For the coarse fast-
-    minimization passes during MCMM sampling this is an acceptable approximation.
+    Like MMFFOptimizeMoleculeConfs, every conformer on `mol` is minimized.
 
     Args:
         mol: molecule containing conformers
         mmff_props: pre-prepared MMFFMoleculeProperties with dielectric already set
         conf_ids: conformer IDs to minimize
         max_iters: maximum minimization iterations
-        num_threads: C++ threads for MMFFOptimizeMoleculeConfs; 0 means all available
-        variant: MMFF variant string passed to MMFFOptimizeMoleculeConfs
+        num_threads: C++ threads for OptimizeMoleculeConfs; 0 means all available
+        variant: unused, kept for API compatibility since mmff_props fixes variant
 
     Returns:
         Energies in kcal/mol aligned to `conf_ids`
@@ -128,16 +125,13 @@ def minimize_confs_mmff(
     if not conf_ids:
         return []
 
-    AllChem.MMFFOptimizeMoleculeConfs(
-        mol, numThreads=int(num_threads or 0), maxIters=int(max_iters), mmffVariant=variant
-    )
+    ff = AllChem.MMFFGetMoleculeForceField(mol, mmff_props, confId=conf_ids[0])
+    if ff is None:
+        return [float("inf")] * len(conf_ids)
 
-    return [
-        float(ff.CalcEnergy())
-        if (ff := AllChem.MMFFGetMoleculeForceField(mol, mmff_props, confId=cid)) is not None
-        else float("inf")
-        for cid in conf_ids
-    ]
+    results = AllChem.OptimizeMoleculeConfs(mol, ff, numThreads=int(num_threads or 0), maxIters=int(max_iters))
+    energy_by_id = {conf.GetId(): float(energy) for conf, (_, energy) in zip(mol.GetConformers(), results, strict=True)}
+    return [energy_by_id.get(cid, float("inf")) for cid in conf_ids]
 
 
 def get_minimizer(

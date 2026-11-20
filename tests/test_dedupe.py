@@ -151,8 +151,8 @@ def test_none_rmsd_threshold_disables_pool_deduplication() -> None:
     assert pool.conf_ids == [0, 1]
 
 
-def test_reported_nmr_molecule_retains_four_post_refinement_states() -> None:
-    """Reported chiral NMR regression retains four Cartesian representatives."""
+def test_reported_nmr_molecule_retains_post_refinement_states() -> None:
+    """Reported chiral NMR regression retains twelve Cartesian representatives."""
     config = ConformerConfig(
         n_steps=200,
         max_out=200,
@@ -166,4 +166,6 @@ def test_reported_nmr_molecule_retains_four_post_refinement_states() -> None:
         config=config,
     )
 
-    assert ensemble.n_conformers == 4
+    # Six distinct final minima, each retained as a symmetry-equivalent pair;
+    # fixed-correspondence dedupe keeps both members of each pair.
+    assert ensemble.n_conformers == 12
