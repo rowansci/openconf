@@ -235,10 +235,9 @@ class ConformerEnsemble:
         # ensemble's stored coordinates unchanged.
         mol_copy = Chem.Mol(self.mol)
 
-        atom_map = None
         if heavy_only:
-            heavy = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetAtomicNum() > 1]
-            atom_map = [list(zip(heavy, heavy, strict=True))]
+            # Search automorphisms of the heavy-atom graph, without hydrogen permutations.
+            mol_copy = Chem.RemoveAllHs(mol_copy)
 
         ref_id = self.records[ref_idx].conf_id
         rmsds: list[float] = []
@@ -251,7 +250,6 @@ class ConformerEnsemble:
                 mol_copy,
                 prbId=record.conf_id,
                 refId=ref_id,
-                map=atom_map,
             )
             rmsds.append(rmsd)
         return rmsds
@@ -279,10 +277,9 @@ class ConformerEnsemble:
 
         mol_copy = Chem.Mol(self.mol)
 
-        atom_map = None
         if heavy_only:
-            heavy = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetAtomicNum() > 1]
-            atom_map = [list(zip(heavy, heavy, strict=True))]
+            # Search automorphisms of the heavy-atom graph, without hydrogen permutations.
+            mol_copy = Chem.RemoveAllHs(mol_copy)
 
         conf_ids = [r.conf_id for r in self.records]
         for i in range(n):
@@ -292,7 +289,6 @@ class ConformerEnsemble:
                     mol_copy,
                     prbId=conf_ids[j],
                     refId=conf_ids[i],
-                    map=atom_map,
                 )
                 matrix[i, j] = rmsd
                 matrix[j, i] = rmsd
