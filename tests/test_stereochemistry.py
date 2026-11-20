@@ -4,8 +4,13 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from openconf import generate_conformers
 from openconf.api import _filter_stereochemistry_consistent_conformers
-from openconf.perceive import prepare_molecule, specified_stereochemistry
+from openconf.perceive import (
+    conformer_matches_specified_stereochemistry,
+    prepare_molecule,
+    specified_stereochemistry,
+)
 
 
 @pytest.mark.parametrize(
@@ -55,3 +60,36 @@ def test_2d_input_keeps_stereochemistry_unspecified() -> None:
 
     assert reference.tetrahedral == {}
     assert reference.bonds == {}
+
+
+@pytest.mark.parametrize(
+    "smiles",
+    [
+        "C[C@H]1CC[C@@H](CC1)CC(C)O",
+        "C[C@H]1CC[C@H](CC1)CC(C)O",
+        "OC[C@H]1C[C@@H](C1)C(F)Cl",
+        "C[C@H]1CC[C@@H](CC1)C[C@H](C)O",
+        "C[C@H]1CC[C@@H](CC1)CCO",
+    ],
+    ids=[
+        "trans-cyclohexane-unassigned-choh",
+        "cis-cyclohexane-unassigned-choh",
+        "cyclobutane-unassigned-chfcl",
+        "all-centres-specified",
+        "no-extra-centre",
+    ],
+)
+def test_specified_ring_stereochemistry_survives_unassigned_centre(smiles: str) -> None:
+    """Ring cis/trans centres validate when input leaves another centre unassigned."""
+    ensemble = generate_conformers(smiles)
+
+    assert ensemble.conf_ids
+
+
+def test_specified_ring_stereochemistry_still_rejects_inversion() -> None:
+    """Inverting a specified ring cis/trans centre is rejected despite unassigned neighbour."""
+    reference = specified_stereochemistry(prepare_molecule(Chem.MolFromSmiles("C[C@H]1CC[C@@H](CC1)CC(C)O")))
+    inverted = prepare_molecule(Chem.MolFromSmiles("C[C@H]1CC[C@H](CC1)CC(C)O"))
+    assert AllChem.EmbedMolecule(inverted, randomSeed=3) == 0
+
+    assert not conformer_matches_specified_stereochemistry(inverted, 0, reference)
