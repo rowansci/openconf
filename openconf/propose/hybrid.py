@@ -242,7 +242,7 @@ class HybridProposer:
                 Identifiers and energies for successfully embedded seeds
         """
         params = AllChem.ETKDGv3()
-        params.randomSeed = self.config.random_seed or -1
+        params.randomSeed = self.config.random_seed if self.config.random_seed is not None else -1
         params.numThreads = int(self.config.num_threads or 0)
         params.pruneRmsThresh = (
             prune_rms_thresh
