@@ -144,13 +144,16 @@ def read_sdf(input_path: str | Path) -> tuple[Chem.Mol, list[int], list[float]]:
         input_path: source file path
 
     Returns:
-        Molecule, conformer IDs, and energies; energies are empty if not present
+        Molecule, conformer IDs, and energies; energies have one entry per
+        conformer, using infinity for conformers without an energy, and are
+        empty if no conformer has one
     """
     supplier = Chem.SDMolSupplier(str(input_path), removeHs=False)
 
     mol = None
     conf_ids: list[int] = []
     energies: list[float] = []
+    has_energy = False
 
     for mol_i in supplier:
         if mol_i is None:
@@ -166,21 +169,27 @@ def read_sdf(input_path: str | Path) -> tuple[Chem.Mol, list[int], list[float]]:
             conf_ids.append(new_id)
 
         # Get energy if present
+        energy_prop = None
         if mol_i.HasProp("Energy_kcal"):
-            try:
-                energies.append(float(mol_i.GetProp("Energy_kcal")))
-            except ValueError:
-                energies.append(float("inf"))
+            energy_prop = "Energy_kcal"
         elif mol_i.HasProp("energy"):
-            try:
-                energies.append(float(mol_i.GetProp("energy")))
-            except ValueError:
-                energies.append(float("inf"))
+            energy_prop = "energy"
+
+        if energy_prop is None:
+            # Keep energies aligned with conf_ids instead of shifting later entries.
+            energies.append(float("inf"))
+            continue
+
+        has_energy = True
+        try:
+            energies.append(float(mol_i.GetProp(energy_prop)))
+        except ValueError:
+            energies.append(float("inf"))
 
     if mol is None:
         raise OpenConfValueError(f"No valid molecules in {input_path}")
 
-    return mol, conf_ids, energies
+    return mol, conf_ids, energies if has_energy else []
 
 
 def mol_to_smiles(mol: Chem.Mol, canonical: bool = True) -> str:
